@@ -12,6 +12,22 @@ from KalmanFilter import KalmanFilter
 from pseyepy import Camera
 from Singleton import Singleton
 
+import serial
+import threading
+
+@Singleton
+class Serial:
+    def __init__(self):
+        self.serialLock = threading.Lock()
+        self.ser = None
+        # self.ser = serial.Serial("/dev/cu.usbserial-02X2K2GE", 1000000, write_timeout=1)
+
+    def write(self, data):
+        if self.ser != None:
+            with self.serialLock:
+                self.ser.write(data)
+                time.sleep(0.001)
+
 
 @Singleton
 class Cameras:
@@ -26,24 +42,15 @@ class Cameras:
         print(self.num_cameras)
 
         self.is_capturing_points = False
-
         self.is_triangulating_points = False
         self.camera_poses = None
-
         self.is_locating_objects = False
-
         self.to_world_coords_matrix = None
-
         self.drone_armed = []
-
         self.num_objects = None
-
         self.kalman_filter = None
-
         self.socketio = None
-        self.ser = None
-
-        self.serialLock = None
+        self.serial = Serial.instance()
 
         global cameras_init
         cameras_init = True
@@ -51,12 +58,6 @@ class Cameras:
     def set_socketio(self, socketio):
         self.socketio = socketio
     
-    def set_ser(self, ser):
-        self.ser = ser
-
-    def set_serialLock(self, serialLock):
-        self.serialLock = serialLock
-
     def set_num_objects(self, num_objects):
         self.num_objects = num_objects
         self.drone_armed = [False for i in range(0, self.num_objects)]
@@ -66,7 +67,7 @@ class Cameras:
         self.cameras.gain = [gain] * self.num_cameras
 
     def _camera_read(self):
-        frames, _ = self.cameras.read()
+        frames, _ = self.cameras.read([2,0,1,3])
 
         for i in range(0, self.num_cameras):
             frames[i] = np.rot90(frames[i], k=self.camera_params[i]["rotation"])
@@ -117,9 +118,7 @@ class Cameras:
                                         "pos": [round(x, 4) for x in filtered_object["pos"].tolist()] + [filtered_object["heading"]],
                                         "vel": [round(x, 4) for x in filtered_object["vel"].tolist()]
                                     }
-                                    with self.serialLock:
-                                        self.ser.write(f"{filtered_object['droneIndex']}{json.dumps(serial_data)}".encode('utf-8'))
-                                        time.sleep(0.001)
+                                    self.serial.write(f"{filtered_object['droneIndex']}{json.dumps(serial_data)}".encode('utf-8'))
                             
                         for filtered_object in filtered_objects:
                             filtered_object["vel"] = filtered_object["vel"].tolist()
@@ -134,9 +133,10 @@ class Cameras:
         
         return frames
 
+
     def get_frames(self):
         frames = self._camera_read()
-        #frames = [add_white_border(frame, 5) for frame in frames]
+        # frames = [add_white_border(frame, 5) for frame in frames]
 
         return np.hstack(frames)
 
