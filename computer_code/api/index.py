@@ -13,6 +13,7 @@ import time
 from ruckig import InputParameter, OutputParameter, Result, Ruckig
 from flask_cors import CORS
 import json
+import eventlet
 
 
 app = Flask(__name__)
@@ -27,28 +28,34 @@ def camera_stream():
     cameras = Cameras.instance()
     cameras.set_socketio(socketio)
     cameras.set_num_objects(num_objects)
-    
+
     def gen(cameras):
-        frequency = 150
+        frequency = 60
         loop_interval = 1.0 / frequency
-        last_run_time = 0
+        last_run_time = time.time()
         i = 0
 
         while True:
             time_now = time.time()
+            elapsed_time = time_now - last_run_time
 
-            i = (i+1)%10
-            if i == 0:
-                socketio.emit("fps", {"fps": round(1/(time_now - last_run_time))})
+            # If it's time to emit the frame
+            if elapsed_time >= loop_interval:
+                frames = cameras.get_frames()
+                jpeg_frame = cv.imencode('.jpg', frames)[1].tobytes()
 
-            if time_now - last_run_time < loop_interval:
-                time.sleep(last_run_time - time_now + loop_interval)
-            last_run_time = time.time()
-            frames = cameras.get_frames()
-            jpeg_frame = cv.imencode('.jpg', frames)[1].tostring()
+                yield (b'--frame\r\n'
+                    b'Content-Type: image/jpeg\r\n\r\n' + jpeg_frame + b'\r\n')
 
-            yield (b'--frame\r\n'
-                b'Content-Type: image/jpeg\r\n\r\n' + jpeg_frame + b'\r\n')
+                # Emit the FPS every second
+                i = (i+1)%10
+                if i == 0:
+                    socketio.emit("fps", {"fps": round(1 / elapsed_time)})
+
+                last_run_time = time.time()  # Update to the current time
+            else:
+                # Sleep to maintain the target frame rate
+                eventlet.sleep(loop_interval - elapsed_time)
 
     return Response(gen(cameras), mimetype='multipart/x-mixed-replace; boundary=frame')
 
