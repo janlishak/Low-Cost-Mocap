@@ -4,10 +4,10 @@ import { BufferAttribute, BufferGeometry, EdgesGeometry, LineBasicMaterial, Line
 export default function CameraWireframe({R, t, toWorldCoordsMatrix}: {R: Array<Array<number>>, t: Array<number>, toWorldCoordsMatrix: number[][]}) {
   const vertices = [
     [0,0,0],
-    [1,0.85,1],
-    [-1,0.85,1],
-    [-1,-0.85,1],
-    [1,-0.85,1]
+    [2,0.85,1],
+    [-2,0.85,1],
+    [-2,-0.85,1],
+    [2,-0.85,1]
   ];
   const indices = [0, 1, 2, 0, 2, 3, 0, 3, 4, 0, 4, 1];
 

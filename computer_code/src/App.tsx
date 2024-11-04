@@ -6,15 +6,17 @@ import Toolbar from './components/Toolbar';
 import Form from 'react-bootstrap/Form';
 import { Tooltip } from 'react-tooltip'
 import CameraWireframe from './components/CameraWireframe';
+import FilledTriangle from './components/MySimplePlane';
 import { io } from 'socket.io-client';
 import { Canvas, useFrame } from '@react-three/fiber'
-import { Stats, OrbitControls } from '@react-three/drei'
+import { Stats, OrbitControls, Plane } from '@react-three/drei'
 import Points from './components/Points';
 import { socket } from './shared/styles/scripts/socket';
 import { matrix, mean, multiply, rotationMatrix } from 'mathjs';
 import Objects from './components/Objects';
 import Chart from './components/chart';
 import TrajectoryPlanningSetpoints from './components/TrajectoryPlanningSetpoints';
+import CameraRotationControl from './components/CameraRotation';
 
 const TRAJECTORY_PLANNING_TIMESTEP = 0.05
 const LAND_Z_HEIGHT = 0.075
@@ -33,6 +35,13 @@ export default function App() {
   const [isLocatingObjects, setIsLocatingObjects] = useState(false);
 
   const objectPoints = useRef<Array<Array<Array<number>>>>([])
+
+  const trianglePointsRef = useRef<number[][]>([
+    [0, 0.1, 0],    // Default vertex 1
+    [-0.1, -0.1, 0], // Default vertex 2
+    [0.1, -0.1, 0]   // Default vertex 3
+  ]);
+  
   const filteredObjects = useRef<object[][]>([])
   const droneSetpointHistory = useRef<number[][]>([])
   const objectPointErrors = useRef<Array<Array<number>>>([])
@@ -41,8 +50,25 @@ export default function App() {
 
   const [fps, setFps] = useState(0);
 
-  const [cameraPoses, setCameraPoses] = useState<Array<object>>([{ "R": [[1, 0, 0], [0, 1, 0], [0, 0, 1]], "t": [0, 0, 0] }, { "R": [[-0.0008290000610233772, -0.7947131755287576, 0.6069845808584402], [0.7624444396180684, 0.3922492478955913, 0.5146056781855716], [-0.6470531579819294, 0.46321862674804054, 0.6055994671226776]], "t": [-2.6049886186449047, -2.173986915510569, 0.7303458563542193] }, { "R": [[-0.9985541623963866, -0.028079891357569067, -0.045837806036037466], [-0.043210651917521686, -0.08793122558361385, 0.9951888962042462], [-0.03197537054848707, 0.995730696156702, 0.0865907408997996]], "t": [0.8953888630067902, -3.4302652822708373, 3.70967106300893] }, { "R": [[-0.4499864100408215, 0.6855400696798954, -0.5723172578577878], [-0.7145273934510732, 0.10804105689305427, 0.6912146801345055], [0.5356891214002657, 0.7199735709654319, 0.4412201517663212]], "t": [2.50141072072536, -2.313616767292231, 1.8529907514099284] }])
-  const [toWorldCoordsMatrix, setToWorldCoordsMatrix] = useState<number[][]>([[0.9941338485260931, 0.0986512964608827, -0.04433748889242502, 0.9938296704767513], [-0.0986512964608827, 0.659022672138982, -0.7456252673517598, 2.593331619023365], [0.04433748889242498, -0.7456252673517594, -0.6648888236128887, 2.9576262456228286], [0, 0, 0, 1]])
+  const defaultPoses = [
+    {"R":[[1,0,0],[0,1,0],[0,0,1]],
+      "t":[0,0,0]},
+    {"R":[[-0.46676803098221253,-0.3138280353189735,0.8268249932729544],[0.20205238481229004,0.8723509824489598,0.44517254768460357],[-0.8609892212128177,0.37485427524328363,-0.34377584744594547]], 
+      "t":[-0.5366673094328076,-0.2845640228023153,0.9031832111739382]},
+    {"R":[[-0.9612744101880272,0.1341094604906655,-0.24076162676922308],[-0.00036540270206006364,0.8729919762455592,0.48773443172667025],[0.2755927698589449,0.4689346031354215,-0.8391358431050954]],
+      "t":[0.2632204839338414,-0.31437984352339937,1.2965815332622783]},
+    {"R":[[0.4393984438305101,0.10782033526063009,-0.8917980617065792],[-0.1627344695438848,0.9858981824099311,0.039016231789665276],
+      [0.8834288313053841,0.12798261297957542,0.4507482121909344]],
+      "t":[0.6713242123805271,-0.058253098087576484,0.42486252881092046]}]
+
+  const [cameraPoses, setCameraPoses] = useState<Array<object>>(defaultPoses)
+  const [toWorldCoordsMatrix, setToWorldCoordsMatrix] = useState<number[][]>(
+    [
+      [1,0,0,0],
+      [0,0.9702957262759965,-0.24192189559966773,0.5],
+      [0,0.24192189559966773,0.9702957262759965,-0.7],
+      [0,0,0,1]
+    ])
 
   const [currentDroneIndex, setCurrentDroneIndex] = useState(0)
   const [droneArmed, setDroneArmed] = useState(Array.apply(null, Array(NUM_DRONES)).map(() => (false)))
@@ -236,6 +262,7 @@ export default function App() {
 
   useEffect(() => {
     socket.on("object-points", (data) => {
+      console.log(data["object_points"][0])
       objectPoints.current.push(data["object_points"])
       if (data["filtered_objects"].length != 0) {
         filteredObjects.current.push(data["filtered_objects"])
@@ -250,6 +277,22 @@ export default function App() {
       socket.off("object-points")
     }
   }, [objectPointCount])
+
+  useEffect(() => {
+    // Socket listener for triangle points
+    socket.on("triangle-points", (data) => {
+      const newPoints = data["triangle_points"];
+      if (newPoints && newPoints.length === 3) {
+        trianglePointsRef.current = newPoints; // Update the ref with new points
+      } else {
+        console.warn("Invalid triangle points data received");
+      }
+    });
+
+    return () => {
+      socket.off("triangle-points"); // Cleanup on unmount
+    };
+  }, []);
 
   useEffect(() => {
     socket.on("camera-pose", data => {
@@ -553,6 +596,8 @@ export default function App() {
                 />
               </Col>
             </Row>
+
+            <CameraRotationControl></CameraRotationControl>
           </Card>
         </Col>
         <Col xs={4}>
@@ -1148,13 +1193,13 @@ export default function App() {
           </Card>
         </Col>
       </Row>
-      <Row className='pt-3'>
+      {/* <Row className='pt-3'>
         <Col>
           <Card className='shadow-sm p-3'>
             <Chart filteredObjectsRef={filteredObjects} droneSetpointHistoryRef={droneSetpointHistory} objectPointCount={objectPointCount} dronePID={dronePID.map(x => parseFloat(x))} droneArmed={droneArmed} currentDroneIndex={currentDroneIndex} />
           </Card>
         </Col>
-      </Row>
+      </Row> */}
       <Row className='pt-3'>
         <Col>
           <Card className='shadow-sm p-3'>
@@ -1172,6 +1217,7 @@ export default function App() {
                   ))}
                   <Points objectPointsRef={objectPoints} objectPointErrorsRef={objectPointErrors} count={objectPointCount} />
                   <Objects filteredObjectsRef={filteredObjects} count={objectPointCount} />
+                  <FilledTriangle trianglePointsRef={trianglePointsRef} />
                   <TrajectoryPlanningSetpoints trajectoryPlanningSetpoints={trajectoryPlanningSetpoints} NUM_DRONES={NUM_DRONES} />
                   <OrbitControls />
                   <axesHelper args={[0.2]} />
