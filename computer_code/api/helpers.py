@@ -87,9 +87,10 @@ class Cameras:
                 frames[i], single_camera_image_points = self._find_dot(frames[i])
                 image_points.append(single_camera_image_points)
             
-            if all(np.all(point[0] != [None, None]) for point in image_points):
+            if (any(np.all(point[0] != [None,None]) for point in image_points)):
                 if self.is_capturing_points and not self.is_triangulating_points:
-                    self.socketio.emit("image-points", [x[0] for x in image_points])
+                    if all(np.all(point[0] != [None, None]) for point in image_points):
+                        self.socketio.emit("image-points", [x[0] for x in image_points])
                 elif self.is_triangulating_points:
                     errors, object_points, frames = find_point_correspondance_and_object_points(image_points, self.camera_poses, frames)
 
@@ -125,6 +126,12 @@ class Cameras:
                             filtered_object["vel"] = filtered_object["vel"].tolist()
                             filtered_object["pos"] = filtered_object["pos"].tolist()
                     
+
+                    # DEFAULT_TRIANGLE_POINTS = [[-0.1, 0, 0],[0.1, 0, 0], [0, 0, 0.1]]
+                    # if(len(object_points)>0):
+                    #     DEFAULT_TRIANGLE_POINTS[2] = object_points[0].tolist()
+                    # self.socketio.emit("triangle-points", {'triangle_points': DEFAULT_TRIANGLE_POINTS})
+
                     self.socketio.emit("object-points", {
                         "object_points": object_points.tolist(), 
                         "errors": errors.tolist(), 

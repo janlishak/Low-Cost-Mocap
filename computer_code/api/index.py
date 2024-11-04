@@ -6,6 +6,7 @@ import cv2 as cv
 import numpy as np
 import json
 from scipy import linalg
+from scipy.spatial.transform import Rotation as R
 
 from flask_socketio import SocketIO
 import copy
@@ -159,43 +160,155 @@ def arm_drone(data):
     #     time.sleep(0.01)
 
 
+def get_plane_points(fit):
+    # Fitted parameters
+    A = fit[0]
+    B = fit[1]
+    C = -1  # Normal component
+    D = fit[2]
+
+    # Define three arbitrary points in the XY plane
+    points = []
+    for (x, y) in [(0, 0), (1, 0), (0, 1)]:
+        z = - (A * x + B * y + D) / C  # Solve for z using the plane equation
+        points.append((x, y, z))
+
+    return points
+
+def compute_euler_angles(plane_normal):
+    # Normalize the plane normal
+    plane_normal = plane_normal / np.linalg.norm(plane_normal)
+
+    # Calculate roll, pitch, and yaw from the normal vector
+    roll = np.arctan2(plane_normal[1], plane_normal[2])  # Rotation around x-axis
+    pitch = np.arctan2(-plane_normal[0], np.sqrt(plane_normal[1]**2 + plane_normal[2]**2))  # Rotation around y-axis
+    yaw = 0  # No rotation around z-axis, adjust if necessary
+    
+    return roll, pitch, yaw
+
+def euler_to_rotation_matrix(roll, pitch, yaw):
+    # Create rotation matrices for each angle
+    R_x = np.array([[1, 0, 0],
+                    [0, np.cos(roll), -np.sin(roll)],
+                    [0, np.sin(roll), np.cos(roll)]])
+
+    R_y = np.array([[np.cos(pitch), 0, np.sin(pitch)],
+                    [0, 1, 0],
+                    [-np.sin(pitch), 0, np.cos(pitch)]])
+
+    R_z = np.array([[np.cos(yaw), -np.sin(yaw), 0],
+                    [np.sin(yaw), np.cos(yaw), 0],
+                    [0, 0, 1]])
+
+    # Combined rotation matrix
+    R = R_z @ R_y @ R_x
+    return R
+
+def euler_degrees_to_rotation_matrix(roll, pitch, yaw):
+    # Convert degrees to radians
+    roll = np.radians(roll)
+    pitch = np.radians(pitch)
+    yaw = np.radians(yaw)
+    
+    # Create rotation matrices for each angle
+    R_x = np.array([[1, 0, 0],
+                    [0, np.cos(roll), -np.sin(roll)],
+                    [0, np.sin(roll), np.cos(roll)]])
+
+    R_y = np.array([[np.cos(pitch), 0, np.sin(pitch)],
+                    [0, 1, 0],
+                    [-np.sin(pitch), 0, np.cos(pitch)]])
+
+    R_z = np.array([[np.cos(yaw), -np.sin(yaw), 0],
+                    [np.sin(yaw), np.cos(yaw), 0],
+                    [0, 0, 1]])
+
+    # Combined rotation matrix
+    R = R_z @ R_y @ R_x
+    return R
+
 @socketio.on("acquire-floor")
 def acquire_floor(data):
     cameras = Cameras.instance()
     object_points = data["objectPoints"]
     object_points = np.array([item for sublist in object_points for item in sublist])
 
+    # Prepare A matrix and b vector for least squares
     tmp_A = []
     tmp_b = []
+    
     for i in range(len(object_points)):
-        tmp_A.append([object_points[i,0], object_points[i,1], 1])
-        tmp_b.append(object_points[i,2])
+        tmp_A.append([object_points[i, 0], object_points[i, 1], 1])
+        tmp_b.append(object_points[i, 2])
+        
     b = np.matrix(tmp_b).T
     A = np.matrix(tmp_A)
 
+    # Fit the plane
     fit, residual, rnk, s = linalg.lstsq(A, b)
     fit = fit.T[0]
 
-    plane_normal = np.array([[fit[0]], [fit[1]], [-1]])
-    plane_normal = plane_normal / linalg.norm(plane_normal)
-    up_normal = np.array([[0],[0],[1]], dtype=np.float32)
+    triangle_points = get_plane_points(fit)
+    socketio.emit("triangle-points", {'triangle_points': triangle_points})
 
-    plane = np.array([fit[0], fit[1], -1, fit[2]])
+    # Wait for a while before proceeding (optional, consider removing for performance)
+    time.sleep(5)
 
-    # https://math.stackexchange.com/a/897677/1012327
-    G = np.array([
-        [np.dot(plane_normal.T,up_normal)[0][0], -linalg.norm(np.cross(plane_normal.T[0],up_normal.T[0])), 0],
-        [linalg.norm(np.cross(plane_normal.T[0],up_normal.T[0])), np.dot(plane_normal.T,up_normal)[0][0], 0],
-        [0, 0, 1]
-    ])
-    F = np.array([plane_normal.T[0], ((up_normal-np.dot(plane_normal.T,up_normal)[0][0]*plane_normal)/linalg.norm((up_normal-np.dot(plane_normal.T,up_normal)[0][0]*plane_normal))).T[0], np.cross(up_normal.T[0],plane_normal.T[0])]).T
-    R = F @ G @ linalg.inv(F)
+    # Plane normal from fitted coefficients
+    plane_normal = np.array([fit[0], fit[1], -1])  # Create a 1D array for the normal
 
-    R = R @ [[1,0,0],[0,-1,0],[0,0,1]] # i dont fucking know why
+    # Compute Euler angles from the plane normal
+    roll, pitch, yaw = compute_euler_angles(plane_normal)
+    print([roll, pitch, yaw])
 
-    cameras.to_world_coords_matrix = np.array(np.vstack((np.c_[R, [0,0,0]], [[0,0,0,1]])))
+    roll = 90
+    pitch = 0
+    yaw = 0
 
+    # Compute the rotation matrix from the Euler angles
+    R_matrix = euler_to_rotation_matrix(roll, pitch, yaw)
+
+    # Translation vector (you can adjust this based on your requirements)
+    t_x = 0
+    t_y = 0
+    # t_z = -fit[2]  # Aligning the plane to z=0 using the fitted plane's z-intercept
+    t_z = 0
+
+    # Construct the transformation matrix
+    transformation_matrix = np.eye(4)
+    transformation_matrix[:3, :3] = R_matrix
+    transformation_matrix[:3, 3] = np.array([t_x, t_y, t_z])
+
+    # Set the camera world coordinates matrix
+    cameras.to_world_coords_matrix = transformation_matrix
+
+    # Emit the new world coordinates matrix
     socketio.emit("to-world-coords-matrix", {"to_world_coords_matrix": cameras.to_world_coords_matrix.tolist()})
+
+@socketio.on("update-camera-rotation")
+def acquire_floor(data):
+    roll = data["roll"]
+    pitch = data["pitch"]
+    yaw = data["yaw"]
+    t_x = data["x"]
+    t_y = data["y"]
+    t_z = data["z"]
+
+    # Compute the rotation matrix from the Euler angles
+    R_matrix = euler_degrees_to_rotation_matrix(roll, pitch, yaw)
+
+    # Construct the transformation matrix
+    transformation_matrix = np.eye(4)
+    transformation_matrix[:3, :3] = R_matrix
+    transformation_matrix[:3, 3] = np.array([t_x, t_y, t_z])
+
+    # Set the camera world coordinates matrix
+    cameras = Cameras.instance()
+    cameras.to_world_coords_matrix = transformation_matrix
+
+    # Emit the new world coordinates matrix
+    socketio.emit("to-world-coords-matrix", {"to_world_coords_matrix": cameras.to_world_coords_matrix.tolist()})
+
 
 
 @socketio.on("set-origin")

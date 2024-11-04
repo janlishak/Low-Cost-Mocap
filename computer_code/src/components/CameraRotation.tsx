@@ -1,0 +1,111 @@
+import { socket } from '../shared/styles/scripts/socket';
+import React, { useState } from 'react';
+import { Row, Col, Form } from 'react-bootstrap';
+
+const CameraRotationControl = () => {
+  const [droneControl, setDroneControl] = useState({
+    pitch: 0,
+    yaw: 0,
+    roll: 14,
+    x: 0,
+    y: 0.5,
+    z: -0.7
+  });
+
+  // Function to emit the updated drone control values to the backend
+  const emitControlUpdate = (updatedControl) => {
+    socket.emit("update-camera-rotation", updatedControl);
+  };
+
+  // Handle change for each field (rotation and position) and emit the update
+  const handleControlChange = (field, value) => {
+    const updatedValue = parseFloat(value) || 0;
+    const updatedControl = { ...droneControl, [field]: updatedValue };
+    setDroneControl(updatedControl);
+    emitControlUpdate(updatedControl); // Emit to backend
+  };
+
+  return (
+    <div>
+      <Row className='pt-3'>
+        <Col xs={{ offset: 2 }} className='text-center'>
+          Pitch
+        </Col>
+        <Col className='text-center'>
+          Yaw
+        </Col>
+        <Col className='text-center'>
+          Roll
+        </Col>
+      </Row>
+
+      <Row className='pt-2'>
+        <Col xs={2} className='pt-2 text-end'>
+          Rotation
+        </Col>
+        <Col>
+          <Form.Control
+            type="number"
+            value={droneControl.pitch}
+            onChange={(event) => handleControlChange("pitch", event.target.value)}
+          />
+        </Col>
+        <Col>
+          <Form.Control
+            type="number"
+            value={droneControl.yaw}
+            onChange={(event) => handleControlChange("yaw", event.target.value)}
+          />
+        </Col>
+        <Col>
+          <Form.Control
+            type="number"
+            value={droneControl.roll}
+            onChange={(event) => handleControlChange("roll", event.target.value)}
+          />
+        </Col>
+      </Row>
+
+      <Row className='pt-3'>
+        <Col xs={{ offset: 2 }} className='text-center'>
+          X
+        </Col>
+        <Col className='text-center'>
+          Y
+        </Col>
+        <Col className='text-center'>
+          Z
+        </Col>
+      </Row>
+
+      <Row className='pt-2'>
+        <Col xs={2} className='pt-2 text-end'>
+          Position
+        </Col>
+        <Col>
+          <Form.Control
+            type="number"
+            value={droneControl.x}
+            onChange={(event) => handleControlChange("x", event.target.value)}
+          />
+        </Col>
+        <Col>
+          <Form.Control
+            type="number"
+            value={droneControl.y}
+            onChange={(event) => handleControlChange("y", event.target.value)}
+          />
+        </Col>
+        <Col>
+          <Form.Control
+            type="number"
+            value={droneControl.z}
+            onChange={(event) => handleControlChange("z", event.target.value)}
+          />
+        </Col>
+      </Row>
+    </div>
+  );
+};
+
+export default CameraRotationControl;
