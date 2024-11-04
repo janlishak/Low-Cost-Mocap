@@ -21,7 +21,7 @@ class Cameras:
         f = open(filename)
         self.camera_params = json.load(f)
 
-        self.cameras = Camera(fps=90, resolution=Camera.RES_SMALL, gain=10, exposure=100)
+        self.cameras = Camera(fps=90, resolution=Camera.RES_SMALL, gain=34, exposure=100)
         self.num_cameras = len(self.cameras.exposure)
         print(self.num_cameras)
 
@@ -87,7 +87,7 @@ class Cameras:
                 frames[i], single_camera_image_points = self._find_dot(frames[i])
                 image_points.append(single_camera_image_points)
             
-            if (any(np.all(point[0] != [None,None]) for point in image_points)):
+            if all(np.all(point[0] != [None, None]) for point in image_points):
                 if self.is_capturing_points and not self.is_triangulating_points:
                     self.socketio.emit("image-points", [x[0] for x in image_points])
                 elif self.is_triangulating_points:
@@ -117,9 +117,9 @@ class Cameras:
                                         "pos": [round(x, 4) for x in filtered_object["pos"].tolist()] + [filtered_object["heading"]],
                                         "vel": [round(x, 4) for x in filtered_object["vel"].tolist()]
                                     }
-                                    with self.serialLock:
-                                        self.ser.write(f"{filtered_object['droneIndex']}{json.dumps(serial_data)}".encode('utf-8'))
-                                        time.sleep(0.001)
+                                    # with self.serialLock:
+                                    #     self.ser.write(f"{filtered_object['droneIndex']}{json.dumps(serial_data)}".encode('utf-8'))
+                                    #     time.sleep(0.001)
                             
                         for filtered_object in filtered_objects:
                             filtered_object["vel"] = filtered_object["vel"].tolist()
