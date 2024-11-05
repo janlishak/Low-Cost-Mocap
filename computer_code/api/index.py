@@ -15,15 +15,7 @@ from ruckig import InputParameter, OutputParameter, Result, Ruckig
 from flask_cors import CORS
 import json
 import eventlet
-
 import logging
-
-serialLock = threading.Lock()
-
-# ser = serial.Serial("/dev/cu.usbserial-02X2K2GE", 1000000, write_timeout=1, )
-ser = None
-
-
 
 app = Flask(__name__)
 CORS(app, supports_credentials=True)
@@ -152,9 +144,8 @@ def arm_drone(data):
     serial_data = {
         "trim": [int(x) for x in data["droneTrim"]],
     }
-    with serialLock:
-        ser.write(f"{str(data['droneIndex'])}{json.dumps(serial_data)}".encode('utf-8'))
-        time.sleep(0.01)
+    serial.write(f"{str(data['droneIndex'])}{json.dumps(serial_data)}".encode('utf-8'))
+
 
 
 def get_plane_points(fit):

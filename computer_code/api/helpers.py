@@ -37,7 +37,7 @@ class Cameras:
         f = open(filename)
         self.camera_params = json.load(f)
 
-        self.cameras = Camera(fps=90, resolution=Camera.RES_SMALL, gain=34, exposure=100)
+        self.cameras = Camera(fps=60, resolution=Camera.RES_SMALL, gain=34, exposure=100)
         self.num_cameras = len(self.cameras.exposure)
         print(self.num_cameras)
 
@@ -67,7 +67,7 @@ class Cameras:
         self.cameras.gain = [gain] * self.num_cameras
 
     def _camera_read(self):
-        frames, _ = self.cameras.read([2,0,1,3])
+        frames, _ = self.cameras.read([0,1,2,3])
 
         for i in range(0, self.num_cameras):
             frames[i] = np.rot90(frames[i], k=self.camera_params[i]["rotation"])
