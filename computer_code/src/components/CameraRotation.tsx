@@ -46,6 +46,7 @@ const CameraRotationControl = () => {
         <Col>
           <Form.Control
             type="number"
+            step="1" // Step changed to 0.05
             value={droneControl.pitch}
             onChange={(event) => handleControlChange("pitch", event.target.value)}
           />
@@ -53,6 +54,7 @@ const CameraRotationControl = () => {
         <Col>
           <Form.Control
             type="number"
+            step="1" // Step changed to 0.05
             value={droneControl.yaw}
             onChange={(event) => handleControlChange("yaw", event.target.value)}
           />
@@ -60,6 +62,7 @@ const CameraRotationControl = () => {
         <Col>
           <Form.Control
             type="number"
+            step="1" // Step changed to 0.05
             value={droneControl.roll}
             onChange={(event) => handleControlChange("roll", event.target.value)}
           />
@@ -85,6 +88,7 @@ const CameraRotationControl = () => {
         <Col>
           <Form.Control
             type="number"
+            step="0.05" // Step changed to 0.05
             value={droneControl.x}
             onChange={(event) => handleControlChange("x", event.target.value)}
           />
@@ -92,6 +96,7 @@ const CameraRotationControl = () => {
         <Col>
           <Form.Control
             type="number"
+            step="0.05" // Step changed to 0.05
             value={droneControl.y}
             onChange={(event) => handleControlChange("y", event.target.value)}
           />
@@ -99,6 +104,7 @@ const CameraRotationControl = () => {
         <Col>
           <Form.Control
             type="number"
+            step="0.05" // Step changed to 0.05
             value={droneControl.z}
             onChange={(event) => handleControlChange("z", event.target.value)}
           />
