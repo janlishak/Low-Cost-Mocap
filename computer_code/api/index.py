@@ -396,7 +396,7 @@ def start_or_stop_locating_objects(data):
 def determine_scale(data):
     object_points = data["objectPoints"]
     camera_poses = data["cameraPoses"]
-    actual_distance = 0.15
+    actual_distance = 0.81
     observed_distances = []
 
     for object_points_i in object_points:
@@ -412,6 +412,41 @@ def determine_scale(data):
         camera_poses[i]["t"] = (np.array(camera_poses[i]["t"]) * scale_factor).tolist()
 
     socketio.emit("camera-pose", {"error": None, "camera_poses": camera_poses})
+
+
+@socketio.on("determine-average")
+def determine_average(data):
+    object_points = data["objectPoints"]
+    # camera_poses = data["cameraPoses"]
+
+    # Flatten the list and convert to a NumPy array
+    flattened_points = np.vstack(object_points)
+
+    # Compute the average for each coordinate (x, y, z)
+    average_point = np.mean(flattened_points, axis=0)
+
+    print("Average point:", average_point)
+
+@socketio.on("add-beacons")
+def add_beacons(data):
+    points = [
+        [-0.3307645344934884, 1.2850473280458907, 0.6427937719874424]
+    ]
+
+    points = [
+        [1,1,0.00], [1,1,0.05], [1,1,0.10], [1,1,0.15], [1,1,0.20], # Point A (up-left)
+        [-1,1,0.00], [-1,1,0.05], [-1,1,0.10], [-1,1,0.15], [-1,1,0.20], # Point B (up-right)
+        [0,-1,0.00], [0,-1,0.05], [0,-1,0.10], [0,-1,0.15], [0,-1,0.20], # Point C (down-middle)
+    ]
+
+    errors = [1,2,3,4,5]
+
+    socketio.emit("object-points", {
+        "object_points": points, 
+        "errors": errors,
+        "objects": [], 
+        "filtered_objects": []
+    })
 
 
 @socketio.on("triangulate-points")

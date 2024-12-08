@@ -4,12 +4,12 @@ import { Row, Col, Form } from 'react-bootstrap';
 
 const CameraRotationControl = () => {
   const [droneControl, setDroneControl] = useState({
-    pitch: 0,
-    yaw: 0,
-    roll: 14,
-    x: 0,
-    y: 0.5,
-    z: -0.7
+    pitch: 27,
+    yaw: 5,
+    roll: 29,
+    x: -1.25,
+    y: 2.25,
+    z: -1.2
   });
 
   // Function to emit the updated drone control values to the backend

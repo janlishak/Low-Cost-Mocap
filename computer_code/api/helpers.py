@@ -379,7 +379,7 @@ def find_point_correspondance_and_object_points(image_points, camera_poses, fram
             if len(points) != 0:
                 distances_to_line = np.abs(a*points[:,0] + b*points[:,1] + c) / np.sqrt(a**2 + b**2)
 
-            possible_matches = points[distances_to_line < 5].copy()
+            possible_matches = points[distances_to_line < 15].copy()
 
             # Commenting out this code produces more points, but more garbage points too
             # delete closest match from future consideration
@@ -387,7 +387,7 @@ def find_point_correspondance_and_object_points(image_points, camera_poses, fram
             #     points = np.delete(points, np.argmin(distances_to_line), axis=0)
 
             # sort possible matches from smallest to largest
-            distances_to_line = distances_to_line[distances_to_line < 5]
+            distances_to_line = distances_to_line[distances_to_line < 15]
             possible_matches_sorter = distances_to_line.argsort()
             possible_matches = possible_matches[possible_matches_sorter]
     
