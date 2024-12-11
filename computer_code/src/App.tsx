@@ -27,6 +27,7 @@ export default function App() {
 
   const [exposure, setExposure] = useState(100);
   const [gain, setGain] = useState(0);
+  const [saveNumber, setSaveNumber] = useState(0);
 
   const [capturingPointsForPose, setCapturingPointsForPose] = useState(false);
   const [capturedPointsForPose, setCapturedPointsForPose] = useState("");
@@ -519,6 +520,47 @@ export default function App() {
                   variant="outline-primary"
                   onClick={() => {
                     socket.emit("add-beacons", {})
+                  }
+                  }>
+                  Run
+                </Button>
+              </Col>
+            </Row>
+            <Row>
+              <Col xs="auto">
+                <h4>Save Points</h4>
+              </Col>
+              <Col>
+                <Button
+                  size='sm'
+                  variant="outline-primary"
+                  onClick={() => {
+                    socket.emit("save-points", { objectPoints: objectPoints.current, saveNumber: saveNumber, objectPointErrors: objectPointErrors.current})
+                  }
+                  }>
+                  Run
+                </Button>
+              </Col>
+              <Col xs={4} className='pt-2'>
+                Number:
+              </Col>
+              <Col>
+                <Form.Control
+                  value={saveNumber}
+                  onChange={(event) => setSaveNumber(parseFloat(event.target.value))}
+                />
+              </Col>
+            </Row>
+            <Row>
+              <Col xs="auto">
+                <h4>Load Points</h4>
+              </Col>
+              <Col>
+                <Button
+                  size='sm'
+                  variant="outline-primary"
+                  onClick={() => {
+                    socket.emit("load-points", { objectPoints: objectPoints.current, saveNumber: saveNumber, objectPointErrors: objectPointErrors.current})
                   }
                   }>
                   Run

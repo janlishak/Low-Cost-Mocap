@@ -448,6 +448,25 @@ def add_beacons(data):
         "filtered_objects": []
     })
 
+@socketio.on("save-points")
+def save_points(data):
+    object_points = data["objectPoints"]
+    objectPointErrors = data["objectPointErrors"]
+    save_number = data["saveNumber"]
+
+    print("--- DATA BEGIN ---")
+    print(object_points)
+    print(objectPointErrors)
+    print("--- DATA END ---")
+    print("Save Number:", save_number)
+
+    # todo: save the file to points-001.json
+
+@socketio.on("load-points")
+def load_points(data):
+    save_number = data["saveNumber"]
+    # object_points = # todo: load from json
+
 
 @socketio.on("triangulate-points")
 def live_mocap(data):
