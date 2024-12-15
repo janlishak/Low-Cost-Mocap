@@ -36,7 +36,7 @@ class SerialReader(threading.Thread):
                     # Update the corresponding anchor distance
                     if anchor_id in self.anchors:
                         self.anchors[anchor_id] = distance
-                        l = [self.anchors["an0"]*92, self.anchors["an1"]*95, self.anchors["an2"]*72]
+                        l = [self.anchors["an0"]*97, self.anchors["an1"]*87, self.anchors["an2"]*71]
                         # print(f"Updated {match.group(1)}: {distance}")
                         print(f"Would triangulate {l}")
                         self.on_update(l)
@@ -156,7 +156,7 @@ def modify_parameters():
 
 # Start the app
 
-serial_reader = SerialReader(port='/dev/ttyUSB2')
+serial_reader = SerialReader(port='/dev/ttyUSB3')
 serial_reader.start()
 serial_reader.on_update = update
 
