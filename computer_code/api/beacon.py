@@ -3,9 +3,9 @@ from scipy.optimize import fsolve
 
 # Define beacon positions
 beacons = [
-    [1, 1, 0],  # Beacon A
-    [-1, 1, 0], # Beacon B
-    [0, -1, 0], # Beacon C
+    [-1.0, 1.0, 0.0], # Beacon A0
+    [ 1.0, 1.0, 0.0], # Beacon A1
+    [ 0.0,-1.0, 0.0], # Beacon A2
 ]
 
 # Function to compute the system of equations
@@ -28,6 +28,6 @@ def triangulate(beacons, distances):
     return solution
 
 # Example usage
-distances = [4, 4, 4]  # Distances to the three beacons
+distances = [1.51, 1.51, 1.1]  # Distances to the three beacons
 coordinates = triangulate(beacons, distances)
 print("Calculated coordinates:", coordinates)
