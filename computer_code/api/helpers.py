@@ -9,11 +9,33 @@ import time
 import numpy as np
 import cv2 as cv
 from KalmanFilter import KalmanFilter
-from pseyepy import Camera
+import threading
+# from pseyepy import Camera
 from Singleton import Singleton
 
 import serial
 import threading
+import eventlet
+
+from mem import BevyCamera, GreenExampleCamera
+
+class Camera:
+    RES_SMALL = "RES_SMALL"
+    def __init__(self, fps=60, resolution=RES_SMALL, gain=34, exposure=100):
+        self.camera_count = 4
+        self.exposure = [exposure] * 4
+        self.gain = [gain] * 4
+        self.bevy_cams = []
+
+        for i in range(self.camera_count):
+            bevy_camera= BevyCamera(f"cam{i}_frame")
+            self.bevy_cams.append(bevy_camera)
+
+    def read(self, indexes=None):
+        if indexes is None:
+            indexes = range(self.camera_count)
+        frames = [self.bevy_cams[i].read_frame() for i in indexes]
+        return frames, None
 
 @Singleton
 class Serial:
@@ -67,11 +89,11 @@ class Cameras:
         self.cameras.gain = [gain] * self.num_cameras
 
     def _camera_read(self):
-        frames, _ = self.cameras.read([0,1,3,2])
+        frames, _ = self.cameras.read([0,1,2,3])
 
         for i in range(0, self.num_cameras):
             frames[i] = np.rot90(frames[i], k=self.camera_params[i]["rotation"])
-            frames[i] = make_square(frames[i])
+            # frames[i] = make_square(frames[i])
             frames[i] = cv.undistort(frames[i], self.get_camera_params(i)["intrinsic_matrix"], self.get_camera_params(i)["distortion_coef"])
             frames[i] = cv.GaussianBlur(frames[i],(9,9),0)
             kernel = np.array([[-2,-1,-1,-1,-2],
@@ -143,7 +165,7 @@ class Cameras:
 
     def get_frames(self):
         frames = self._camera_read()
-        # frames = [add_white_border(frame, 5) for frame in frames]
+        frames = [add_white_border(frame, 5) for frame in frames]
 
         return np.hstack(frames)
 
@@ -279,6 +301,11 @@ def bundle_adjustment(image_points, camera_poses, socketio):
         errors = calculate_reprojection_errors(image_points, object_points, camera_poses)
         errors = errors.astype(np.float32)
         socketio.emit("camera-pose", {"camera_poses": camera_pose_to_serializable(camera_poses)})
+        eventlet.sleep(0)
+
+        # print(errors)
+        print(total_error)
+        print("EEE", translation_penalty)
         
         return errors
 
@@ -290,6 +317,9 @@ def bundle_adjustment(image_points, camera_poses, socketio):
         init_params = np.concatenate([init_params, [focal_distance]])
         init_params = np.concatenate([init_params, rot_vec])
         init_params = np.concatenate([init_params, camera_pose["t"].flatten()])
+
+    print(init_params)
+
 
     res = optimize.least_squares(
         residual_function, init_params, verbose=2, loss="cauchy", ftol=1E-2

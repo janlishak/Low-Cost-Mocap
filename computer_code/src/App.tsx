@@ -403,7 +403,7 @@ export default function App() {
                 FPS: {fps}
               </Col>
             </Row>
-            <Row className='mt-2 mb-1' style={{ height: "320px" }}>
+            <Row className='mt-2 mb-1' style={{ height: "512px" }}>
               <Col>
                 <img src={cameraStreamRunning ? "http://localhost:3001/api/camera-stream" : ""} />
               </Col>
