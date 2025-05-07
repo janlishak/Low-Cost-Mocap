@@ -16,6 +16,48 @@ from flask_cors import CORS
 import json
 import eventlet
 import logging
+import json
+
+from send_lines import LineBufferWriter
+writer = LineBufferWriter("bevy_line_input_app")
+
+# order_num = 5
+# def point_order_generator(image_points):
+#     global order_num
+#     orders = [
+#         [0, 1, 2],
+#         [0, 2, 1],
+#         [1, 0, 2],
+#         [1, 2, 0],
+#         [2, 0, 1],
+#         [2, 1, 0]
+#     ]
+#     order = orders[order_num]
+#     order_num = (order_num + 1) % 6
+#     return np.array([image_points[order[0]], image_points[order[1]], image_points[order[2]]], dtype=np.float32)
+
+def generate_all_point_orders(image_points):
+    orders = [
+        [0, 1, 2],
+        [0, 2, 1],
+        [1, 0, 2],
+        [1, 2, 0],
+        [2, 0, 1],
+        [2, 1, 0]
+    ]
+    return np.array([[image_points[i] for i in order] for order in orders], dtype=np.float32)
+
+# def compute_lookat_rotation(camera_pos, target=np.array([0,0,0]), up=np.array([0,1,0])):
+#     forward = target - camera_pos
+#     forward = forward / np.linalg.norm(forward)
+
+#     right = np.cross(up, forward)
+#     right = right / np.linalg.norm(right)
+
+#     true_up = np.cross(forward, right)
+
+#     R = np.vstack([right, true_up, forward]).T
+#     return R
 
 app = Flask(__name__)
 CORS(app, supports_credentials=True)
@@ -331,55 +373,288 @@ def capture_points(data):
     elif (start_or_stop == "stop"):
         cameras.stop_capturing_points()
 
+
 @socketio.on("calculate-camera-pose")
 def calculate_camera_pose(data):
+    global order
+    # print(f"ORD: {order_num}") 
+
+    # get data
+    camera_points = data["cameraPoints"]
     cameras = Cameras.instance()
-    image_points = np.array(data["cameraPoints"])
-    image_points_t = image_points.transpose((1, 0, 2))
 
-    camera_poses = [{
-        "R": np.eye(3),
-        "t": np.array([[0],[0],[0]], dtype=np.float32)
-    }]
-    for camera_i in range(0, cameras.num_cameras-1):
-        camera1_image_points = image_points_t[camera_i]
-        camera2_image_points = image_points_t[camera_i+1]
-        not_none_indicies = np.where(np.all(camera1_image_points != None, axis=1) & np.all(camera2_image_points != None, axis=1))[0]
-        camera1_image_points = np.take(camera1_image_points, not_none_indicies, axis=0).astype(np.float32)
-        camera2_image_points = np.take(camera2_image_points, not_none_indicies, axis=0).astype(np.float32)
+    for camera_index in range(cameras.num_cameras):
+    # for camera_index in [3]:
+        # fill missing points where camera seen less than 3 points
+        standardized_camera_points = []
+        for points in camera_points:
+            while len(points) < 3:
+                print("missing points")
+                points.append([None, None])
+            standardized_camera_points.append(points)
 
-        F, _ = cv.findFundamentalMat(camera1_image_points, camera2_image_points, cv.FM_RANSAC, 1, 0.99999)
-        E = cv.sfm.essentialFromFundamental(F, cameras.get_camera_params(0)["intrinsic_matrix"], cameras.get_camera_params(1)["intrinsic_matrix"])
-        possible_Rs, possible_ts = cv.sfm.motionFromEssential(E)
+        image_points = np.array(standardized_camera_points)
+        image_points_t = image_points.transpose((1, 0, 2, 3))
 
-        R = None
-        t = None
-        max_points_infront_of_camera = 0
-        for i in range(0, 4):
-            object_points = triangulate_points(np.hstack([np.expand_dims(camera1_image_points, axis=1), np.expand_dims(camera2_image_points, axis=1)]), np.concatenate([[camera_poses[-1]], [{"R": possible_Rs[i], "t": possible_ts[i]}]]))
-            object_points_camera_coordinate_frame = np.array([possible_Rs[i].T @ object_point for object_point in object_points])
+        # print(f"(image_points_t): {image_points_t[0][0]}")
 
-            points_infront_of_camera = np.sum(object_points[:,2] > 0) + np.sum(object_points_camera_coordinate_frame[:,2] > 0)
+        # Define object points (3D in meters)
+        object_points = np.array([
+            [-0.075, 0.0,   0.0],
+            [ 0.075, 0.0,   0.0],
+            [ 0.0,   0.0, -0.058]
+        ], dtype=np.float32)
 
-            if points_infront_of_camera > max_points_infront_of_camera:
-                max_points_infront_of_camera = points_infront_of_camera
-                R = possible_Rs[i]
-                t = possible_ts[i]
 
-        R = R @ camera_poses[-1]["R"]
-        t = camera_poses[-1]["t"] + (camera_poses[-1]["R"] @ t)
+        # object_points = np.array([
+        #     [-0.075, 0.0,   0.0],
+        #     [ 0.075, 0.0,   0.0],
+        #     [ 0.0,   0.058, 0.0]
+        # ], dtype=np.float32)
 
-        camera_poses.append({
-            "R": R,
-            "t": t
-        })
+        # Example: image_points from your detection (Camera 0, Frame 0)
+        observerd_order_image_points = np.array(image_points_t[camera_index][0], dtype=np.float32)  # Shape (3,2)
 
-    camera_poses = bundle_adjustment(image_points, camera_poses, socketio)
+        for image_points in generate_all_point_orders(observerd_order_image_points):
+            # print(f"(image_points): {image_points}")
 
-    object_points = triangulate_points(image_points, camera_poses)
-    error = np.mean(calculate_reprojection_errors(image_points, object_points, camera_poses))
+            # Camera intrinsics
+            K = cameras.get_camera_params(0)["intrinsic_matrix"]
+            dist_coeffs = np.zeros((4,1))   # Assuming no distortion, or load actual values
 
-    socketio.emit("camera-pose", {"camera_poses": camera_pose_to_serializable(camera_poses)})
+            # Solve PnP
+            # Provide an initial guess (identity rotation, zero translation)
+            rvec_init = np.zeros((3, 1), dtype=np.float32)
+            tvec_init = np.zeros((3, 1), dtype=np.float32)
+
+            success, rvecs, tvecs, errors = cv.solvePnPGeneric(
+                object_points, 
+                image_points, 
+                K, 
+                dist_coeffs, 
+                # rvec=rvec_init, 
+                # tvec=tvec_init, 
+                # useExtrinsicGuess=True, 
+                flags=cv.SOLVEPNP_SQPNP
+            )
+
+            if success:
+                for i in range(len(rvecs)):
+                    rvec = rvecs[i]
+                    tvec = tvecs[i]
+
+                    R, _ = cv.Rodrigues(rvec)
+                    # print("Rotation Matrix:\n", R)
+                    # print("Translation Vector:\n", tvec)
+                    distance = np.linalg.norm(tvec)
+                    # print(f"Estimated distance from triangle to camera: {distance:.4f} meters")
+
+                    # 1. Define axis to visualize (length = 0.05m)
+                    axis_points = np.float32([
+                        [0, 0, 0],      # Origin
+                        [0.15, 0, 0],   # X
+                        [0, 0.15, 0],   # Y
+                        [0, 0, 0.15]    # Z
+                    ])
+
+                    # 2. Project axis points
+                    projected_axis, _ = cv.projectPoints(axis_points, rvec, tvec, K, dist_coeffs)
+
+                    # 3. Project object points (should align with detected points)
+                    reprojected_points, _ = cv.projectPoints(object_points, rvec, tvec, K, dist_coeffs)
+
+                    # ---- Drawing Section ----
+                    frame = cameras.cameras.bevy_cams[camera_index].read_frame()   # Get a frame from Camera 0
+                    frame = cv.cvtColor(frame, cv.COLOR_RGB2BGR)        # Ensure correct color format
+
+                    # Extract points
+                    origin = tuple(projected_axis[0].ravel().astype(int))
+                    x_end  = tuple(projected_axis[1].ravel().astype(int))
+                    y_end  = tuple(projected_axis[2].ravel().astype(int))
+                    z_end  = tuple(projected_axis[3].ravel().astype(int))
+
+                    # 3. Draw axes from origin
+                    cv.line(frame, origin, x_end, (0,0,255), 1)  # X - Red
+                    cv.line(frame, origin, y_end, (0,255,0), 1)  # Y - Green
+                    cv.line(frame, origin, z_end, (255,0,0), 1)  # Z - Blue
+
+
+                    height, width = frame.shape[:2]
+                    # Offset
+                    offset = 5
+                    # Define points with offset
+                    top_left = (offset, offset)
+                    top_right = (width - offset, offset)
+                    bottom_right = (width - offset, height - offset)
+                    bottom_left = (offset, height - offset)
+                    # print(top_left)
+                    # print(top_right)
+                    # print(bottom_right)
+                    # print(bottom_left)
+                    # Draw lines
+                    # cv.line(frame, top_left, top_right, (0, 255, 0), 2)
+                    # cv.line(frame, top_right, bottom_right, (0, 255, 0), 2)
+                    # cv.line(frame, bottom_right, bottom_left, (0, 255, 0), 2)
+                    # cv.line(frame, bottom_left, top_left, (0, 255, 0), 2)
+
+                    corners_2d = np.array([
+                        [0, 0],                 # Top-left
+                        [width, 0],             # Top-right
+                        [width, height],        # Bottom-right
+                        [0, height]             # Bottom-left
+                    ], dtype=np.float32)
+
+                    # Back-project to 3D camera space (Z = 1)
+                    K_inv = np.linalg.inv(K)
+                    camera_points_3d = []
+
+                    for corner in corners_2d:
+                        pixel_homogeneous = np.array([corner[0], corner[1], 1.0])
+                        direction = K_inv @ pixel_homogeneous
+                        point_cam_space = direction / direction[2]   # Normalize so Z = 1
+                        camera_points_3d.append(point_cam_space)
+
+                    camera_points_3d = np.array(camera_points_3d, dtype=np.float32)
+
+                    rvec_zero = np.zeros((3,1), dtype=np.float32)
+                    tvec_zero = np.zeros((3,1), dtype=np.float32)
+
+                    reprojected_points, _ = cv.projectPoints(camera_points_3d, rvec_zero, tvec_zero, K, dist_coeffs)
+
+                    # print("Original 2D Points:\n", corners_2d)
+                    # print("Reprojected Points:\n", reprojected_points.reshape(-1, 2))
+
+                    # Invert the transformation
+                    R_obj_to_cam, _ = cv.Rodrigues(rvec)
+                    R_cam_in_obj = R_obj_to_cam.T
+                    t_cam_in_obj = -R_cam_in_obj @ tvec
+
+                    # 3. Apply inverse transformation
+                    object_space_points = (R_cam_in_obj @ camera_points_3d.T).T + t_cam_in_obj.T
+                    # print("Camera window corners in object space:\n", object_space_points)
+
+                    p1 = (object_space_points[0][0], object_space_points[0][1], object_space_points[0][2])
+                    p2 = (object_space_points[1][0], object_space_points[1][1], object_space_points[1][2])
+                    p3 = (object_space_points[2][0], object_space_points[2][1], object_space_points[2][2])
+                    p4 = (object_space_points[3][0], object_space_points[3][1], object_space_points[3][2])
+                    p5 = (t_cam_in_obj[0], t_cam_in_obj[1], t_cam_in_obj[2])
+                    
+
+                    # frame
+                    writer.next_line(p1, p2)
+                    writer.next_line(p2, p3)
+                    writer.next_line(p3, p4)
+                    writer.next_line(p4, p1)
+
+                    # # frustom
+                    # writer.next_line(p5, p1)
+                    # writer.next_line(p5, p2)
+                    # writer.next_line(p5, p3)
+                    # writer.next_line(p5, p4)
+
+                    # # Draw reprojected points
+                    # for pt in reprojected_points:
+                    #     cv.circle(frame, tuple(pt.ravel().astype(int)), 5, (0,255,255), -1)
+
+                    # # OPTIONAL: Draw detected points for comparison
+                    # for pt in image_points:
+                    #     cv.circle(frame, tuple(pt.ravel().astype(int)), 5, (255,0,255), 2)
+
+                    # Show the frame (for debugging, or send it somewhere)
+                    print(f"tvec: {t_cam_in_obj} rvec: {R_cam_in_obj}")
+                    cv.imshow("Pose Debug", frame)
+                    cv.waitKey(0)
+                    cv.destroyAllWindows()
+            else:
+                print("PnP failed")
+
+
+    # Now R_cam_in_obj and t_cam_in_obj describe the camera in object space
+    # camera_pose = {
+    #     "R": R_cam_in_obj,
+    #     "t": t_cam_in_obj
+    # }
+
+    # socketio.emit("camera-pose", {"camera_poses": camera_pose_to_serializable([camera_pose])})
+    
+    # # set the first camera pose
+    # R, _ = cv.Rodrigues(rvec)
+    # camera_poses = [{
+    #     "R": R,
+    #     "t": tvec
+    # }]
+
+    # # # api requires all cameras set, just place them on a line
+    # for i in range(3):
+    #     camera_poses.append(
+    # {
+    #     "R": np.eye(3),
+    #     "t": np.array([[1 + i], [0], [0]], dtype=np.float32)
+    # })
+        
+    
+    # camera_poses = []
+    # for i in range(4):
+    #     cam_pos = np.random.uniform(-1, 1, size=(3,))
+    #     R = compute_lookat_rotation(cam_pos)
+    #     t = cam_pos.reshape(3,1)
+
+    #     camera_poses.append({
+    #         "R": R,
+    #         "t": t
+    #     })
+  
+    # socketio.emit("camera-pose", {"camera_poses": camera_pose_to_serializable(camera_poses)})
+
+    # for camera_i in range(0, cameras.num_cameras - 1):
+    #     camera1_image_points = image_points_t[camera_i]
+    #     camera2_image_points = image_points_t[camera_i + 1]
+
+    #     # Filter valid points (where both cameras see the point)
+    #     valid_indices = np.where(
+    #         np.all(camera1_image_points != None, axis=1) &
+    #         np.all(camera2_image_points != None, axis=1)
+    #     )[0]
+
+    #     camera1_points = np.take(camera1_image_points, valid_indices, axis=0).astype(np.float32)
+    #     camera2_points = np.take(camera2_image_points, valid_indices, axis=0).astype(np.float32)
+
+    #     if len(camera1_points) < 5:
+    #         print(f"Not enough points between Camera {camera_i} and Camera {camera_i+1}")
+    #         continue
+
+    #     # Compute Fundamental Matrix
+    #     F, _ = cv.findFundamentalMat(camera1_points, camera2_points, cv.FM_RANSAC, 1, 0.99999)
+
+    #     # Compute Essential Matrix
+    #     K1 = cameras.get_camera_params(camera_i)["intrinsic_matrix"]
+    #     K2 = cameras.get_camera_params(camera_i + 1)["intrinsic_matrix"]
+    #     E = K2.T @ F @ K1
+
+    #     # Recover Pose using OpenCV high-level function
+    #     _, R_rel, t_rel, _ = cv.recoverPose(E, camera1_points, camera2_points, K1)
+
+    #     # Normalize translation vector to enforce consistent scale (optional but recommended)
+    #     # t_rel = t_rel / np.linalg.norm(t_rel) * 1.0   # Assume 1 unit distance between cameras
+
+    #     # Convert relative pose to global pose
+    #     last_pose = camera_poses[-1]
+    #     R_global = R_rel @ last_pose["R"]
+    #     t_global = last_pose["t"] + last_pose["R"] @ t_rel
+
+    #     camera_poses.append({
+    #         "R": R_global,
+    #         "t": t_global
+    #     })
+
+    # Run bundle adjustment for refinement
+    # camera_poses = bundle_adjustment(image_points, camera_poses, socketio)
+
+    # Evaluate reprojection error
+    # object_points = triangulate_points(image_points, camera_poses)
+    # error = np.mean(calculate_reprojection_errors(image_points, object_points, camera_poses))
+
+    # print(f"Mean reprojection error after BA: {error}")
 
 @socketio.on("locate-objects")
 def start_or_stop_locating_objects(data):
@@ -450,21 +725,87 @@ def add_beacons(data):
 
 @socketio.on("save-points")
 def save_points(data):
-    object_points = data["objectPoints"]
-    objectPointErrors = data["objectPointErrors"]
-    save_number = data["saveNumber"]
+    # object_points = data["objectPoints"]
+    # objectPointErrors = data["objectPointErrors"]
+    # save_number = data["saveNumber"]
 
-    print("--- DATA BEGIN ---")
-    print(object_points)
-    print(objectPointErrors)
-    print("--- DATA END ---")
-    print("Save Number:", save_number)
+    # print("--- DATA BEGIN ---")
+    # print(object_points)
+    # print(objectPointErrors)
+    # print("--- DATA END ---")
+    # print("Save Number:", save_number)
 
     # todo: save the file to points-001.json
+        # # # api requires all cameras set, just place them on a line
+    # for i in range(3):
+    #     camera_poses.append(
+    # {
+    #     "R": np.eye(3),
+    #     "t": np.array([[1 + i], [0], [0]], dtype=np.float32)
+    # })
+
+    camera_rotations = [
+        np.array([
+            [-0.88464818,  0.18091275, -0.42973035],
+            [-0.02716579, -0.94008888, -0.33984543],
+            [-0.46546709, -0.28896968,  0.83656256]
+        ]),
+        np.array([
+            [-0.87930107, -0.1059963,   0.46432145],
+            [ 0.01764399, -0.98150028, -0.19064598],
+            [ 0.4759394,  -0.15944274,  0.86490444]
+        ]),
+        np.array([
+            [ 0.84041556, -0.10075993,  0.53249331],
+            [-0.04297638, -0.99186082, -0.11985468],
+            [ 0.5402358,   0.07784311, -0.83790556]
+        ]),
+        np.array([
+            [ 0.76256755,  0.15331514, -0.62847848],
+            [-0.02529311, -0.96370153, -0.26578115],
+            [-0.64641395,  0.21857225, -0.7310097]
+        ])
+    ]
+
+    camera_translations = [
+        np.array([[1.84351665], [2.25643426], [-3.13078911]]),
+        np.array([[-1.91002897], [1.98233738], [-3.06587392]]),
+        np.array([[-1.96112615], [1.81881143], [3.06741785]]),
+        np.array([[2.21896577], [2.11639218], [2.96994236]])
+    ]
+
+    # camera_poses = []
+    # for R, t in zip(camera_rotations, camera_translations):
+    #     camera_poses.append({
+    #         "R": R,
+    #         "t": t
+    #     })
+
+    # Use first camera as origin
+    R0_inv = camera_rotations[0].T
+    t0 = camera_translations[0]
+
+    camera_poses = []
+    camera_poses.append({
+        "R": np.eye(3),
+        "t": np.zeros((3, 1))
+    })
+
+    for R, t in zip(camera_rotations[1:], camera_translations[1:]):
+        R_rel = R0_inv @ R
+        t_rel = R0_inv @ (t - t0)
+        camera_poses.append({
+            "R": R_rel,
+            "t": t_rel
+        })
+
+  
+    socketio.emit("camera-pose", {"camera_poses": camera_pose_to_serializable(camera_poses)})
 
 @socketio.on("load-points")
 def load_points(data):
-    save_number = data["saveNumber"]
+    writer.reset()
+    # save_number = data["saveNumber"]
     # object_points = # todo: load from json
 
 

@@ -61,7 +61,7 @@ class Cameras:
 
         self.cameras = Camera(fps=60, resolution=Camera.RES_SMALL, gain=34, exposure=100)
         self.num_cameras = len(self.cameras.exposure)
-        print(self.num_cameras)
+        # print(self.num_cameras)
 
         self.is_capturing_points = False
         self.is_triangulating_points = False
@@ -73,6 +73,8 @@ class Cameras:
         self.kalman_filter = None
         self.socketio = None
         self.serial = Serial.instance()
+
+        self.old_format = True
 
         global cameras_init
         cameras_init = True
@@ -113,7 +115,10 @@ class Cameras:
             if (any(np.all(point[0] != [None,None]) for point in image_points)):
                 if self.is_capturing_points and not self.is_triangulating_points:
                     if all(np.all(point[0] != [None, None]) for point in image_points):
-                        self.socketio.emit("image-points", [x[0] for x in image_points])
+                        if self.old_format:
+                            self.socketio.emit("image-points", [x[0] for x in image_points]) # if multiple points detected only send the first
+                        else:
+                            self.socketio.emit("image-points", image_points) # send all points
                 elif self.is_triangulating_points:
                     errors, object_points, frames = find_point_correspondance_and_object_points(image_points, self.camera_poses, frames)
 
@@ -271,6 +276,7 @@ def calculate_reprojection_error(image_points, object_point, camera_poses):
 
 
 def bundle_adjustment(image_points, camera_poses, socketio):
+    print("BA", camera_poses)
     cameras = Cameras.instance()
 
     def params_to_camera_poses(params):
@@ -301,12 +307,7 @@ def bundle_adjustment(image_points, camera_poses, socketio):
         errors = calculate_reprojection_errors(image_points, object_points, camera_poses)
         errors = errors.astype(np.float32)
         socketio.emit("camera-pose", {"camera_poses": camera_pose_to_serializable(camera_poses)})
-        eventlet.sleep(0)
-
-        # print(errors)
-        print(total_error)
-        print("EEE", translation_penalty)
-        
+        eventlet.sleep(0)        
         return errors
 
     focal_distance = cameras.get_camera_params(0)["intrinsic_matrix"][0,0]
