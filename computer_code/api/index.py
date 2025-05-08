@@ -17,9 +17,14 @@ import json
 import eventlet
 import logging
 import json
+import pickle
+import os
+import hashlib
 
 from send_lines import LineBufferWriter
+from pose_buffer import PoseBufferReader
 writer = LineBufferWriter("bevy_line_input_app")
+reader = PoseBufferReader(name="bevy_pose_input_app", max_lines=4)
 
 # order_num = 5
 # def point_order_generator(image_points):
@@ -374,9 +379,31 @@ def capture_points(data):
         cameras.stop_capturing_points()
 
 
-@socketio.on("calculate-camera-pose")
+# @socketio.on("calculate-camera-pose")
 def calculate_camera_pose(data):
-    global order
+    HASHINPUT = "acc7cda5678cbd7d6a95944a592986ca"
+
+    # make sure cache dir exists
+    CACHE_DIR ="cache"
+    os.makedirs(CACHE_DIR, exist_ok=True)
+    # Save new input
+    computed_hash = hashlib.md5(pickle.dumps(data)).hexdigest()
+    cache_path = os.path.join(CACHE_DIR, f"{computed_hash}_input_new.pkl")
+    if not os.path.exists(cache_path):
+        with open(cache_path, "wb") as f:
+            pickle.dump(data, f)
+    print(f"POINTS HASHS NEW: {computed_hash}")  # Return the hash for reference
+    # Load saved input
+    if HASHINPUT is not None:
+        cache_path = os.path.join(CACHE_DIR, f"{HASHINPUT}_input_new.pkl")
+        if os.path.exists(cache_path):
+            with open(cache_path, "rb") as f:
+                data = pickle.load(f)
+        else:
+            raise FileNotFoundError(f"No cached input found for hash: {HASHINPUT}")
+        
+    
+    # global order
     # print(f"ORD: {order_num}") 
 
     # get data
@@ -501,7 +528,8 @@ def calculate_camera_pose(data):
                         [0, 0],                 # Top-left
                         [width, 0],             # Top-right
                         [width, height],        # Bottom-right
-                        [0, height]             # Bottom-left
+                        [0, height],            # Bottom-left
+                        [width//2, 0]           # Top-middle
                     ], dtype=np.float32)
 
                     # Back-project to 3D camera space (Z = 1)
@@ -538,6 +566,7 @@ def calculate_camera_pose(data):
                     p3 = (object_space_points[2][0], object_space_points[2][1], object_space_points[2][2])
                     p4 = (object_space_points[3][0], object_space_points[3][1], object_space_points[3][2])
                     p5 = (t_cam_in_obj[0], t_cam_in_obj[1], t_cam_in_obj[2])
+                    p6 = (object_space_points[4][0], object_space_points[4][1], object_space_points[4][2])
                     
 
                     # frame
@@ -545,6 +574,7 @@ def calculate_camera_pose(data):
                     writer.next_line(p2, p3)
                     writer.next_line(p3, p4)
                     writer.next_line(p4, p1)
+                    writer.next_line(p6, p5)
 
                     # # frustom
                     # writer.next_line(p5, p1)
@@ -560,11 +590,11 @@ def calculate_camera_pose(data):
                     # for pt in image_points:
                     #     cv.circle(frame, tuple(pt.ravel().astype(int)), 5, (255,0,255), 2)
 
-                    # Show the frame (for debugging, or send it somewhere)
-                    print(f"tvec: {t_cam_in_obj} rvec: {R_cam_in_obj}")
-                    cv.imshow("Pose Debug", frame)
-                    cv.waitKey(0)
-                    cv.destroyAllWindows()
+                    # # Show the frame (for debugging, or send it somewhere)
+                    # print(f"tvec: {t_cam_in_obj} rvec: {R_cam_in_obj}")
+                    # cv.imshow("Pose Debug", frame)
+                    # cv.waitKey(0)
+                    # cv.destroyAllWindows()
             else:
                 print("PnP failed")
 
@@ -656,6 +686,85 @@ def calculate_camera_pose(data):
 
     # print(f"Mean reprojection error after BA: {error}")
 
+@socketio.on("calculate-camera-pose")
+def calculate_camera_pose(data):
+    # HASHINPUT = "8671c7ee44482ff7b411ffe5180d5d64"
+    # HASHINPUT = "80ba7f4f0cd00be0db42379006fef197"
+    HASHINPUT = "0e89542d39b7d98a28321871773eccf1"
+
+    # HASHINPUT = None
+
+    # make sure cache dir exists
+    CACHE_DIR ="cache"
+    os.makedirs(CACHE_DIR, exist_ok=True)
+
+    # Save new input
+    computed_hash = hashlib.md5(pickle.dumps(data)).hexdigest()
+    cache_path = os.path.join(CACHE_DIR, f"{computed_hash}_input.pkl")
+    if not os.path.exists(cache_path):
+        with open(cache_path, "wb") as f:
+            pickle.dump(data, f)
+    
+    print(f"POINTS HASHS: {computed_hash}")  # Return the hash for reference
+
+    # Load saved input
+    if HASHINPUT is not None:
+        cache_path = os.path.join(CACHE_DIR, f"{HASHINPUT}_input.pkl")
+        if os.path.exists(cache_path):
+            with open(cache_path, "rb") as f:
+                data = pickle.load(f)
+        else:
+            raise FileNotFoundError(f"No cached input found for hash: {HASHINPUT}")
+
+    print("running old")
+    cameras = Cameras.instance()
+    image_points = np.array(data["cameraPoints"])
+    image_points_t = image_points.transpose((1, 0, 2))
+
+    camera_poses = [{
+        "R": np.eye(3),
+        "t": np.array([[0],[0],[0]], dtype=np.float32)
+    }]
+    for camera_i in range(0, cameras.num_cameras-1):
+        camera1_image_points = image_points_t[camera_i]
+        camera2_image_points = image_points_t[camera_i+1]
+        not_none_indicies = np.where(np.all(camera1_image_points != None, axis=1) & np.all(camera2_image_points != None, axis=1))[0]
+        camera1_image_points = np.take(camera1_image_points, not_none_indicies, axis=0).astype(np.float32)
+        camera2_image_points = np.take(camera2_image_points, not_none_indicies, axis=0).astype(np.float32)
+
+        F, _ = cv.findFundamentalMat(camera1_image_points, camera2_image_points, cv.FM_RANSAC, 1, 0.99999)
+        E = cv.sfm.essentialFromFundamental(F, cameras.get_camera_params(0)["intrinsic_matrix"], cameras.get_camera_params(1)["intrinsic_matrix"])
+        possible_Rs, possible_ts = cv.sfm.motionFromEssential(E)
+
+        R = None
+        t = None
+        max_points_infront_of_camera = 0
+        for i in range(0, 4):
+            object_points = triangulate_points(np.hstack([np.expand_dims(camera1_image_points, axis=1), np.expand_dims(camera2_image_points, axis=1)]), np.concatenate([[camera_poses[-1]], [{"R": possible_Rs[i], "t": possible_ts[i]}]]))
+            object_points_camera_coordinate_frame = np.array([possible_Rs[i].T @ object_point for object_point in object_points])
+
+            points_infront_of_camera = np.sum(object_points[:,2] > 0) + np.sum(object_points_camera_coordinate_frame[:,2] > 0)
+
+            if points_infront_of_camera > max_points_infront_of_camera:
+                max_points_infront_of_camera = points_infront_of_camera
+                R = possible_Rs[i]
+                t = possible_ts[i]
+
+        R = R @ camera_poses[-1]["R"]
+        t = camera_poses[-1]["t"] + (camera_poses[-1]["R"] @ t)
+
+        camera_poses.append({
+            "R": R,
+            "t": t
+        })
+
+    camera_poses = bundle_adjustment(image_points, camera_poses, socketio)
+
+    object_points = triangulate_points(image_points, camera_poses)
+    error = np.mean(calculate_reprojection_errors(image_points, object_points, camera_poses))
+
+    socketio.emit("camera-pose", {"camera_poses": camera_pose_to_serializable(camera_poses)})
+
 @socketio.on("locate-objects")
 def start_or_stop_locating_objects(data):
     cameras = Cameras.instance()
@@ -744,48 +853,95 @@ def save_points(data):
     #     "t": np.array([[1 + i], [0], [0]], dtype=np.float32)
     # })
 
+    # camera_rotations = [
+    #     np.array([
+    #         [-0.88464818,  0.18091275, -0.42973035],
+    #         [-0.02716579, -0.94008888, -0.33984543],
+    #         [-0.46546709, -0.28896968,  0.83656256]
+    #     ]),
+    #     np.array([
+    #         [-0.87930107, -0.1059963,   0.46432145],
+    #         [ 0.01764399, -0.98150028, -0.19064598],
+    #         [ 0.4759394,  -0.15944274,  0.86490444]
+    #     ]),
+    #     np.array([
+    #         [ 0.84041556, -0.10075993,  0.53249331],
+    #         [-0.04297638, -0.99186082, -0.11985468],
+    #         [ 0.5402358,   0.07784311, -0.83790556]
+    #     ]),
+    #     np.array([
+    #         [ 0.76256755,  0.15331514, -0.62847848],
+    #         [-0.02529311, -0.96370153, -0.26578115],
+    #         [-0.64641395,  0.21857225, -0.7310097]
+    #     ])
+    # ]
+
+    # camera_translations = [
+    #     np.array([[1.84351665], [2.25643426], [-3.13078911]]),
+    #     np.array([[-1.91002897], [1.98233738], [-3.06587392]]),
+    #     np.array([[-1.96112615], [1.81881143], [3.06741785]]),
+    #     np.array([[2.21896577], [2.11639218], [2.96994236]])
+    # ]
+
     camera_rotations = [
         np.array([
-            [-0.88464818,  0.18091275, -0.42973035],
-            [-0.02716579, -0.94008888, -0.33984543],
-            [-0.46546709, -0.28896968,  0.83656256]
+            [-0.8618331, -0.14180309,  0.486966],
+            [ 7.450581e-9, 0.9601211, 0.2795845],
+            [-0.5071923, 0.24095514, -0.8274641]
         ]),
         np.array([
-            [-0.87930107, -0.1059963,   0.46432145],
-            [ 0.01764399, -0.98150028, -0.19064598],
-            [ 0.4759394,  -0.15944274,  0.86490444]
+            [-0.850157,  0.09008469, -0.5187658],
+            [1.8626451e-8, 0.9852552, 0.17109145],
+            [0.52652943, 0.14545457, -0.83762157]
         ]),
         np.array([
-            [ 0.84041556, -0.10075993,  0.53249331],
-            [-0.04297638, -0.99186082, -0.11985468],
-            [ 0.5402358,   0.07784311, -0.83790556]
+            [0.83510876, 0.074800774, -0.54497546],
+            [1.1175871e-8, 0.9907115, 0.13598043],
+            [0.5500849, -0.11355846, 0.8273518]
         ]),
         np.array([
-            [ 0.76256755,  0.15331514, -0.62847848],
-            [-0.02529311, -0.96370153, -0.26578115],
-            [-0.64641395,  0.21857225, -0.7310097]
+            [0.74628246, -0.15128975, 0.6482082],
+            [1.4901161e-8, 0.97382754, 0.22728826],
+            [-0.6656293, -0.16962124, 0.72675043]
         ])
     ]
 
     camera_translations = [
-        np.array([[1.84351665], [2.25643426], [-3.13078911]]),
-        np.array([[-1.91002897], [1.98233738], [-3.06587392]]),
-        np.array([[-1.96112615], [1.81881143], [3.06741785]]),
-        np.array([[2.21896577], [2.11639218], [2.96994236]])
+        np.array([[2.0251737], [2.158235], [-3.0000007]]),
+        np.array([[-2.16109], [2.151783], [-3.0000005]]),
+        np.array([[-2.0576675], [2.1107368], [3.0000007]]),
+        np.array([[2.3062143], [2.1781263], [3.0000005]])
     ]
 
-    # camera_poses = []
-    # for R, t in zip(camera_rotations, camera_translations):
-    #     camera_poses.append({
-    #         "R": R,
-    #         "t": t
-    #     })
+    # camera_translations[0][1] += 1
+
+    # SIM DATA
+    camera_rotations = []
+    camera_translations = []
+    for i in range(4):
+        R, t = reader.get_R_t(i)
+        camera_rotations.append(R)
+        camera_translations.append(np.asarray(t).reshape(3, 1))
+
+
+    flip = np.array([[-1, 0, 0], [0, 1, 0], [0, 0, -1]])
+    camera_rotations = [flip  @ R for R in camera_rotations]
+    camera_translations = [flip  @ t for t in camera_translations]
+    
+    # flip_t = np.array([[1], [-1], [1]]) 
+    # camera_translations = [flip_t * t for t in camera_translations]
+
+
+    # cameras = Cameras.instance()
+    # scale_factor = cameras.cameras.exposure[0]/100
+    # print(scale_factor)
+    scale_factor = 0.21317899478641678
+    camera_poses = []
 
     # Use first camera as origin
     R0_inv = camera_rotations[0].T
     t0 = camera_translations[0]
 
-    camera_poses = []
     camera_poses.append({
         "R": np.eye(3),
         "t": np.zeros((3, 1))
@@ -796,10 +952,15 @@ def save_points(data):
         t_rel = R0_inv @ (t - t0)
         camera_poses.append({
             "R": R_rel,
-            "t": t_rel
+            "t": t_rel * scale_factor,
         })
 
-  
+    # for R, t in zip(camera_rotations[0:], camera_translations[0:]):
+    #     camera_poses.append({
+    #         "R": R,
+    #         "t": t * scale_factor,
+    #     })
+
     socketio.emit("camera-pose", {"camera_poses": camera_pose_to_serializable(camera_poses)})
 
 @socketio.on("load-points")
@@ -815,6 +976,13 @@ def live_mocap(data):
     start_or_stop = data["startOrStop"]
     camera_poses = data["cameraPoses"]
     cameras.to_world_coords_matrix = data["toWorldCoordsMatrix"]
+
+    
+    t0 = np.array(camera_poses[0]["t"])
+    t1 = np.array(camera_poses[1]["t"])
+    distance = np.linalg.norm(t0 - t1)
+    print(f"dist: {distance}")
+    print(f"ratio: {distance/4.186269175733933}")
 
     if (start_or_stop == "start"):
         cameras.start_trangulating_points(camera_poses)
