@@ -943,9 +943,10 @@ def load_simulation_poses(data):
 
     # camera_translations[0][1] += 1
 
-    TEST_CONVERSION = False
+    TEST_CONVERSION = 2
 
     # SIM DATA
+    scale_factor = 0.21317899478641678
     camera_rotations = []
     camera_translations = []
     for i in range(4):
@@ -953,7 +954,8 @@ def load_simulation_poses(data):
         camera_rotations.append(R)
         camera_translations.append(np.asarray(t).reshape(3, 1))
 
-    if TEST_CONVERSION:
+    if TEST_CONVERSION == 0:
+        print("IDK this ..")
         # flip = np.array([[-1, 0, 0], [0, 1, 0], [0, 0, -1]])
         global permutation_index
         global permutation_index_2
@@ -976,7 +978,6 @@ def load_simulation_poses(data):
         # cameras = Cameras.instance()
         # scale_factor = cameras.cameras.exposure[0]/100
         # print(scale_factor)
-        scale_factor = 0.21317899478641678
         camera_poses = []
 
         # Use first camera as origin
@@ -996,21 +997,80 @@ def load_simulation_poses(data):
                 "t": t_rel * scale_factor,
             })
     
-    else:
+    elif TEST_CONVERSION == 1:
         print("CAMERA POSES FROM SIMULATION:")
+
+        flip_r= np.array([[-1, 0, 0], [0, 1, 0], [0, 0, -1]])
+        camera_rotations = [flip_r @ R for R in camera_rotations]
+
+        flip_t = np.array([[1], [-1], [1]]) 
+        camera_translations = [flip_t * t for t in camera_translations]
+
+
         camera_poses = []
         for R, t in zip(camera_rotations[0:], camera_translations[0:]):
-            print(f"\nCamera {"X"}:")
-            print(f"Rotation Vector (rvec): \n{R}")
-            print(f"Translation Vector (tvec): \n{t}")
-            print(f"--- --- --- --- ---")
+            # print(f"\nCamera {"X"}:")
+            # print(f"Rotation Vector (rvec): \n{R}")
+            # print(f"Translation Vector (tvec): \n{t}")
+            # print(f"--- --- --- --- ---")
 
             camera_poses.append({
                 "R": R,
-                "t": t,
+                "t": t * scale_factor,
+            })
+
+
+    elif TEST_CONVERSION == 2:
+        print("CAMERA POSES FROM SIMULATION 1st Camera ORIGIN:")
+
+        flip_r= np.array([[-1, 0, 0], [0, 1, 0], [0, 0, -1]])
+        camera_rotations = [flip_r @ R for R in camera_rotations]
+        flip_t = np.array([[1], [-1], [1]]) 
+        camera_translations = [flip_t * t for t in camera_translations]
+
+        
+        # Use first camera as origin
+        R0_inv = camera_rotations[0].T
+        t0 = camera_translations[0]
+
+        camera_poses = []
+        camera_poses.append({
+            "R": np.eye(3),
+            "t": np.zeros((3, 1))
+        })
+
+        offset_local = np.array([[0.0], [0.0], [0.0]])
+
+        for R, t in zip(camera_rotations[1:], camera_translations[1:]):
+            R_rel = R0_inv @ R
+            t_rel = R0_inv @ (t - t0)
+
+            offset_world = R_rel @ offset_local
+            offset_first_camera_space = np.array([[1], [1], [0.0]])
+            camera_poses.append({
+                "R": R_rel,
+                "t": (t_rel + offset_world + offset_first_camera_space) * scale_factor,
             })
 
     socketio.emit("camera-pose", {"camera_poses": camera_pose_to_serializable(camera_poses)})
+
+@socketio.on("test-diff")
+def test_diff(data):
+    print("test diff")
+
+    best_ba = [{"R":[[1,0,0],[0,1,0],[0,0,1]],"t":[0,0,0]},{"R":[[0.42875885812009135,-0.2421588305912347,0.8703590881643284],[0.15541792495722054,0.9688139044292223,0.19298934474886892],[-0.8899500605008954,0.05252351236628881,0.4530233663544974]],"t":[-0.6591285361608913,-0.043671214881990744,0.6000534661871276]},{"R":[[-0.9715083568151248,-0.05296505526180127,0.23101128881396812],[0.04737919632251508,0.9116328169893706,0.4082656227798973],[-0.23222128324985378,0.4075785935364358,-0.883149458300605]],"t":[-0.08831869133856607,-0.15379236773129423,1.4564293521916798]},{"R":[[-0.3191704436507617,0.2547489563377422,-0.9128160806781435],[-0.22120275673186598,0.9165629298600755,0.3331392141741001],[0.921520248455778,0.3082456242205964,-0.23618862554080794]],"t":[0.6804468494579395,-0.17150260126833697,0.9910185755251584]}]
+    best_sim = [{"R":[[1,0,0],[0,1,0],[0,0,1]],"t":[[0],[0],[0]]},{"R":[[0.4656417778858568,-0.15141140477402448,0.8719247633266392],[0.2474249153086674,0.9682380241129767,0.03600188167583074],[-0.8496817752010908,0.19897184893955533,0.4883149868460297]],"t":[[-0.7691200454836932],[-0.1252278417108802],[0.43496449023989414]]},{"R":[[-0.9987232229486054,-0.006869804536422386,0.05005146069699151],[0.014124789814411454,0.9132335321000797,0.40719163285259885],[-0.04850596423297571,0.4073786221345159,-0.9119704430178306]],"t":[[-0.10138217967165271],[-0.4218997446150533],[1.4850625338761347]]},{"R":[[-0.3055687821751185,0.2164171498496792,-0.9272495866780162],[-0.2662120125665055,0.9155746020344826,0.30142058962106866],[0.9141986714858295,0.338949660947792,-0.2221581313993255]],"t":[[0.700370730597649],[-0.30377512598650946],[1.0280273635002777]]}]
+
+    index = 0
+    both = [best_ba, best_sim]
+
+
+    for _ in range(1000):
+        index = (index + 1) % 2
+        camera_poses = both[index]
+        socketio.emit("camera-pose", {"camera_poses": camera_poses})
+        eventlet.sleep(0.01)
+    print("done")
 
 @socketio.on("triangulate-points")
 def live_mocap(data):

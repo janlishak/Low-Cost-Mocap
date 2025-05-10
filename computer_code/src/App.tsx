@@ -575,6 +575,22 @@ export default function App() {
             </Row>
             <Row>
               <Col xs="auto">
+                <h4><del>Test Diff</del></h4>
+              </Col>
+              <Col>
+                <Button
+                  size='sm'
+                  variant="outline-primary"
+                  onClick={() => {
+                    socket.emit("test-diff", {})
+                  }
+                  }>
+                  Run
+                </Button>
+              </Col>
+            </Row>
+            <Row>
+              <Col xs="auto">
                 <h4>Reset Simulation Gyzmos</h4>
               </Col>
               <Col>
