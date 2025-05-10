@@ -360,6 +360,10 @@ export default function App() {
     socket.emit("calculate-camera-pose", { cameraPoints })
   }
 
+  const calculateCameraPoseTriangle = async (cameraPoints: Array<Array<Array<number>>>) => {
+    socket.emit("calculate-camera-pose-triangle", { cameraPoints })
+  }
+
   const isValidJson = (str: string) => {
     try {
       const o = JSON.parse(str);
@@ -571,6 +575,22 @@ export default function App() {
             </Row>
             <Row>
               <Col xs="auto">
+                <h4>Reset Simulation Gyzmos</h4>
+              </Col>
+              <Col>
+                <Button
+                  size='sm'
+                  variant="outline-primary"
+                  onClick={() => {
+                    socket.emit("reset-simulation-gyzmos", {})
+                  }
+                  }>
+                  Run
+                </Button>
+              </Col>
+            </Row>
+            <Row>
+              <Col xs="auto">
                 <h4>Load Real Poses from Simulation</h4>
               </Col>
               <Col>
@@ -651,6 +671,20 @@ export default function App() {
                     calculateCameraPose(JSON.parse(`[${capturedPointsForPose.slice(0, -1)}]`))
                   }}>
                   Calculate Camera Pose with {isValidJson(`[${capturedPointsForPose.slice(0, -1)}]`) ? JSON.parse(`[${capturedPointsForPose.slice(0, -1)}]`).length : 0} points
+                </Button>
+              </Col>
+            </Row>
+            <Row className='pt-3'>
+              <Col>
+                <Button
+                  size='sm'
+                  className='float-end'
+                  variant="outline-primary"
+                  disabled={!(isValidJson(`[${capturedPointsForPose.slice(0, -1)}]`) && JSON.parse(`[${capturedPointsForPose.slice(0, -1)}]`).length !== 0)}
+                  onClick={() => {
+                    calculateCameraPoseTriangle(JSON.parse(`[${capturedPointsForPose.slice(0, -1)}]`))
+                  }}>
+                  Calculate Camera Pose using Triangle with {isValidJson(`[${capturedPointsForPose.slice(0, -1)}]`) ? JSON.parse(`[${capturedPointsForPose.slice(0, -1)}]`).length : 0} points
                 </Button>
               </Col>
             </Row>

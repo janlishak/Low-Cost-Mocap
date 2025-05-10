@@ -401,7 +401,7 @@ def capture_points(data):
         cameras.stop_capturing_points()
 
 
-# @socketio.on("calculate-camera-pose")
+@socketio.on("calculate-camera-pose-triangle")
 def calculate_camera_pose(data):
     HASHINPUT = "acc7cda5678cbd7d6a95944a592986ca"
 
@@ -431,6 +431,7 @@ def calculate_camera_pose(data):
     # get data
     camera_points = data["cameraPoints"]
     cameras = Cameras.instance()
+    results = [[] for _ in range(4)]
 
     for camera_index in range(cameras.num_cameras):
     # for camera_index in [3]:
@@ -464,6 +465,7 @@ def calculate_camera_pose(data):
         # Example: image_points from your detection (Camera 0, Frame 0)
         observerd_order_image_points = np.array(image_points_t[camera_index][0], dtype=np.float32)  # Shape (3,2)
 
+        ord_num = 0
         for image_points in generate_all_point_orders(observerd_order_image_points):
             # print(f"(image_points): {image_points}")
 
@@ -613,12 +615,77 @@ def calculate_camera_pose(data):
                     #     cv.circle(frame, tuple(pt.ravel().astype(int)), 5, (255,0,255), 2)
 
                     # # Show the frame (for debugging, or send it somewhere)
+                    # print(ord_num)
                     # print(f"tvec: {t_cam_in_obj} rvec: {R_cam_in_obj}")
                     # cv.imshow("Pose Debug", frame)
                     # cv.waitKey(0)
                     # cv.destroyAllWindows()
+
+                    res = {
+                        "R": R_cam_in_obj,
+                        "t": t_cam_in_obj
+                    }
+                    results[camera_index].append(res)
+                    ord_num += 1
             else:
                 print("PnP failed")
+        ord_num += 1
+
+
+
+    # camera_rotations = [
+    #     np.array([
+    #         [-0.88464818,  0.18091275, -0.42973035],
+    #         [-0.02716579, -0.94008888, -0.33984543],
+    #         [-0.46546709, -0.28896968,  0.83656256]
+    #     ]),
+    #     np.array([
+    #         [-0.87930107, -0.1059963,   0.46432145],
+    #         [ 0.01764399, -0.98150028, -0.19064598],
+    #         [ 0.4759394,  -0.15944274,  0.86490444]
+    #     ]),
+    #     np.array([
+    #         [ 0.84041556, -0.10075993,  0.53249331],
+    #         [-0.04297638, -0.99186082, -0.11985468],
+    #         [ 0.5402358,   0.07784311, -0.83790556]
+    #     ]),
+    #     np.array([
+    #         [ 0.76256755,  0.15331514, -0.62847848],
+    #         [-0.02529311, -0.96370153, -0.26578115],
+    #         [-0.64641395,  0.21857225, -0.7310097]
+    #     ])
+    # ]
+
+    # camera_translations = [
+    #     np.array([[1.84351665], [2.25643426], [-3.13078911]]),
+    #     np.array([[-1.91002897], [1.98233738], [-3.06587392]]),
+    #     np.array([[-1.96112615], [1.81881143], [3.06741785]]),
+    #     np.array([[2.21896577], [2.11639218], [2.96994236]])
+    # ]
+    
+    
+    cams = []
+    cams.append(results[0][10])
+    cams.append(results[1][6])
+    cams.append(results[2][1])
+    cams.append(results[3][8])
+
+    camera_poses = []
+    print("CAMERA POSES:")
+    for i, cam in enumerate(cams):
+        rvec = cam["R"]
+        tvec = cam["t"]
+        print(f"\nCamera {i}:")
+        print(f"Rotation Vector (rvec): \n{rvec}")
+        print(f"Translation Vector (tvec): \n{tvec}")
+        print(f"--- --- --- --- ---")
+
+        camera_pose = {
+            "R": cam["R"],
+            "t": cam["t"]
+        }
+        camera_poses.append(camera_pose) 
+
 
 
     # Now R_cam_in_obj and t_cam_in_obj describe the camera in object space
@@ -627,7 +694,7 @@ def calculate_camera_pose(data):
     #     "t": t_cam_in_obj
     # }
 
-    # socketio.emit("camera-pose", {"camera_poses": camera_pose_to_serializable([camera_pose])})
+    socketio.emit("camera-pose", {"camera_poses": camera_pose_to_serializable(camera_poses)})
     
     # # set the first camera pose
     # R, _ = cv.Rodrigues(rvec)
@@ -658,55 +725,7 @@ def calculate_camera_pose(data):
   
     # socketio.emit("camera-pose", {"camera_poses": camera_pose_to_serializable(camera_poses)})
 
-    # for camera_i in range(0, cameras.num_cameras - 1):
-    #     camera1_image_points = image_points_t[camera_i]
-    #     camera2_image_points = image_points_t[camera_i + 1]
 
-    #     # Filter valid points (where both cameras see the point)
-    #     valid_indices = np.where(
-    #         np.all(camera1_image_points != None, axis=1) &
-    #         np.all(camera2_image_points != None, axis=1)
-    #     )[0]
-
-    #     camera1_points = np.take(camera1_image_points, valid_indices, axis=0).astype(np.float32)
-    #     camera2_points = np.take(camera2_image_points, valid_indices, axis=0).astype(np.float32)
-
-    #     if len(camera1_points) < 5:
-    #         print(f"Not enough points between Camera {camera_i} and Camera {camera_i+1}")
-    #         continue
-
-    #     # Compute Fundamental Matrix
-    #     F, _ = cv.findFundamentalMat(camera1_points, camera2_points, cv.FM_RANSAC, 1, 0.99999)
-
-    #     # Compute Essential Matrix
-    #     K1 = cameras.get_camera_params(camera_i)["intrinsic_matrix"]
-    #     K2 = cameras.get_camera_params(camera_i + 1)["intrinsic_matrix"]
-    #     E = K2.T @ F @ K1
-
-    #     # Recover Pose using OpenCV high-level function
-    #     _, R_rel, t_rel, _ = cv.recoverPose(E, camera1_points, camera2_points, K1)
-
-    #     # Normalize translation vector to enforce consistent scale (optional but recommended)
-    #     # t_rel = t_rel / np.linalg.norm(t_rel) * 1.0   # Assume 1 unit distance between cameras
-
-    #     # Convert relative pose to global pose
-    #     last_pose = camera_poses[-1]
-    #     R_global = R_rel @ last_pose["R"]
-    #     t_global = last_pose["t"] + last_pose["R"] @ t_rel
-
-    #     camera_poses.append({
-    #         "R": R_global,
-    #         "t": t_global
-    #     })
-
-    # Run bundle adjustment for refinement
-    # camera_poses = bundle_adjustment(image_points, camera_poses, socketio)
-
-    # Evaluate reprojection error
-    # object_points = triangulate_points(image_points, camera_poses)
-    # error = np.mean(calculate_reprojection_errors(image_points, object_points, camera_poses))
-
-    # print(f"Mean reprojection error after BA: {error}")
 
 @socketio.on("calculate-camera-pose")
 def calculate_camera_pose(data):
@@ -866,86 +885,65 @@ def add_beacons(data):
 
 @socketio.on("save-points")
 def save_points(data):
-    # object_points = data["objectPoints"]
-    # objectPointErrors = data["objectPointErrors"]
-    # save_number = data["saveNumber"]
-
-    # print("--- DATA BEGIN ---")
-    # print(object_points)
-    # print(objectPointErrors)
-    # print("--- DATA END ---")
-    # print("Save Number:", save_number)
-
+    object_points = data["objectPoints"]
+    objectPointErrors = data["objectPointErrors"]
+    save_number = data["saveNumber"]
+    print("--- DATA BEGIN ---")
+    print(object_points)
+    print(objectPointErrors)
+    print("--- DATA END ---")
+    print("Save Number:", save_number)
+    print("todo: implement saving")
     # todo: save the file to points-001.json
-        # # # api requires all cameras set, just place them on a line
-    # for i in range(3):
-    #     camera_poses.append(
-    # {
-    #     "R": np.eye(3),
-    #     "t": np.array([[1 + i], [0], [0]], dtype=np.float32)
-    # })
+    
 
+@socketio.on("load-points")
+def load_points(data):
+    writer.reset()
+    save_number = data["saveNumber"]
+    object_points = None # todo: load from json
+    print("todo: implement loading")
+
+@socketio.on("reset-simulation-gyzmos")
+def reset_simulation_gyzmos(data):
+    writer.reset()
+    print("sim: reset gyzmos")
+
+@socketio.on("load-simulation-poses")
+def load_simulation_poses(data):
     # camera_rotations = [
     #     np.array([
-    #         [-0.88464818,  0.18091275, -0.42973035],
-    #         [-0.02716579, -0.94008888, -0.33984543],
-    #         [-0.46546709, -0.28896968,  0.83656256]
+    #         [-0.8618331, -0.14180309,  0.486966],
+    #         [ 7.450581e-9, 0.9601211, 0.2795845],
+    #         [-0.5071923, 0.24095514, -0.8274641]
     #     ]),
     #     np.array([
-    #         [-0.87930107, -0.1059963,   0.46432145],
-    #         [ 0.01764399, -0.98150028, -0.19064598],
-    #         [ 0.4759394,  -0.15944274,  0.86490444]
+    #         [-0.850157,  0.09008469, -0.5187658],
+    #         [1.8626451e-8, 0.9852552, 0.17109145],
+    #         [0.52652943, 0.14545457, -0.83762157]
     #     ]),
     #     np.array([
-    #         [ 0.84041556, -0.10075993,  0.53249331],
-    #         [-0.04297638, -0.99186082, -0.11985468],
-    #         [ 0.5402358,   0.07784311, -0.83790556]
+    #         [0.83510876, 0.074800774, -0.54497546],
+    #         [1.1175871e-8, 0.9907115, 0.13598043],
+    #         [0.5500849, -0.11355846, 0.8273518]
     #     ]),
     #     np.array([
-    #         [ 0.76256755,  0.15331514, -0.62847848],
-    #         [-0.02529311, -0.96370153, -0.26578115],
-    #         [-0.64641395,  0.21857225, -0.7310097]
+    #         [0.74628246, -0.15128975, 0.6482082],
+    #         [1.4901161e-8, 0.97382754, 0.22728826],
+    #         [-0.6656293, -0.16962124, 0.72675043]
     #     ])
     # ]
 
     # camera_translations = [
-    #     np.array([[1.84351665], [2.25643426], [-3.13078911]]),
-    #     np.array([[-1.91002897], [1.98233738], [-3.06587392]]),
-    #     np.array([[-1.96112615], [1.81881143], [3.06741785]]),
-    #     np.array([[2.21896577], [2.11639218], [2.96994236]])
+    #     np.array([[2.0251737], [2.158235], [-3.0000007]]),
+    #     np.array([[-2.16109], [2.151783], [-3.0000005]]),
+    #     np.array([[-2.0576675], [2.1107368], [3.0000007]]),
+    #     np.array([[2.3062143], [2.1781263], [3.0000005]])
     # ]
 
-    camera_rotations = [
-        np.array([
-            [-0.8618331, -0.14180309,  0.486966],
-            [ 7.450581e-9, 0.9601211, 0.2795845],
-            [-0.5071923, 0.24095514, -0.8274641]
-        ]),
-        np.array([
-            [-0.850157,  0.09008469, -0.5187658],
-            [1.8626451e-8, 0.9852552, 0.17109145],
-            [0.52652943, 0.14545457, -0.83762157]
-        ]),
-        np.array([
-            [0.83510876, 0.074800774, -0.54497546],
-            [1.1175871e-8, 0.9907115, 0.13598043],
-            [0.5500849, -0.11355846, 0.8273518]
-        ]),
-        np.array([
-            [0.74628246, -0.15128975, 0.6482082],
-            [1.4901161e-8, 0.97382754, 0.22728826],
-            [-0.6656293, -0.16962124, 0.72675043]
-        ])
-    ]
-
-    camera_translations = [
-        np.array([[2.0251737], [2.158235], [-3.0000007]]),
-        np.array([[-2.16109], [2.151783], [-3.0000005]]),
-        np.array([[-2.0576675], [2.1107368], [3.0000007]]),
-        np.array([[2.3062143], [2.1781263], [3.0000005]])
-    ]
-
     # camera_translations[0][1] += 1
+
+    TEST_CONVERSION = False
 
     # SIM DATA
     camera_rotations = []
@@ -955,63 +953,64 @@ def save_points(data):
         camera_rotations.append(R)
         camera_translations.append(np.asarray(t).reshape(3, 1))
 
+    if TEST_CONVERSION:
+        # flip = np.array([[-1, 0, 0], [0, 1, 0], [0, 0, -1]])
+        global permutation_index
+        global permutation_index_2
+        flip = all_48_transforms[permutation_index]
+        t_flip = flip_translations[permutation_index_2]
+        permutation_index += 1
+        permutation_index_2 += 1
+        print("--- --- ---")
+        print(flip)
+        print(t_flip)
+        print("--- --- ---")
 
-    # flip = np.array([[-1, 0, 0], [0, 1, 0], [0, 0, -1]])
-    global permutation_index
-    global permutation_index_2
-    flip = all_48_transforms[permutation_index]
-    t_flip = flip_translations[permutation_index_2]
-    permutation_index += 1
-    permutation_index_2 += 1
-    print("--- --- ---")
-    print(flip)
-    print(t_flip)
-    print("--- --- ---")
+        # camera_rotations = [flip  @ R for R in camera_rotations]
+        # camera_translations = [flip  @ t for t in camera_translations]
 
-    # camera_rotations = [flip  @ R for R in camera_rotations]
-    # camera_translations = [flip  @ t for t in camera_translations]
-
-    # flip_t = np.array([[1], [-1], [1]]) 
-    camera_translations = [t_flip * t for t in camera_translations]
+        # flip_t = np.array([[1], [-1], [1]]) 
+        camera_translations = [t_flip * t for t in camera_translations]
 
 
-    # cameras = Cameras.instance()
-    # scale_factor = cameras.cameras.exposure[0]/100
-    # print(scale_factor)
-    scale_factor = 0.21317899478641678
-    camera_poses = []
+        # cameras = Cameras.instance()
+        # scale_factor = cameras.cameras.exposure[0]/100
+        # print(scale_factor)
+        scale_factor = 0.21317899478641678
+        camera_poses = []
 
-    # Use first camera as origin
-    R0_inv = camera_rotations[0].T
-    t0 = camera_translations[0]
+        # Use first camera as origin
+        R0_inv = camera_rotations[0].T
+        t0 = camera_translations[0]
 
-    camera_poses.append({
-        "R": np.eye(3),
-        "t": np.zeros((3, 1))
-    })
-
-    for R, t in zip(camera_rotations[1:], camera_translations[1:]):
-        R_rel = R0_inv @ R
-        t_rel = R0_inv @ (t - t0)
         camera_poses.append({
-            "R": R_rel,
-            "t": t_rel * scale_factor,
+            "R": np.eye(3),
+            "t": np.zeros((3, 1))
         })
 
-    # for R, t in zip(camera_rotations[0:], camera_translations[0:]):
-    #     camera_poses.append({
-    #         "R": R,
-    #         "t": t * scale_factor,
-    #     })
+        for R, t in zip(camera_rotations[1:], camera_translations[1:]):
+            R_rel = R0_inv @ R
+            t_rel = R0_inv @ (t - t0)
+            camera_poses.append({
+                "R": R_rel,
+                "t": t_rel * scale_factor,
+            })
+    
+    else:
+        print("CAMERA POSES FROM SIMULATION:")
+        camera_poses = []
+        for R, t in zip(camera_rotations[0:], camera_translations[0:]):
+            print(f"\nCamera {"X"}:")
+            print(f"Rotation Vector (rvec): \n{R}")
+            print(f"Translation Vector (tvec): \n{t}")
+            print(f"--- --- --- --- ---")
+
+            camera_poses.append({
+                "R": R,
+                "t": t,
+            })
 
     socketio.emit("camera-pose", {"camera_poses": camera_pose_to_serializable(camera_poses)})
-
-@socketio.on("load-points")
-def load_points(data):
-    writer.reset()
-    # save_number = data["saveNumber"]
-    # object_points = # todo: load from json
-
 
 @socketio.on("triangulate-points")
 def live_mocap(data):
