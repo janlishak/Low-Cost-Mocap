@@ -34,3 +34,5 @@ yarn-error.log*
 *.tsbuildinfo
 next-env.d.ts
 __pycache__
+computer_code/api/cache/*.pkl
+computer_code/api/cache - after first find/*.pkl

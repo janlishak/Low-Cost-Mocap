@@ -74,7 +74,7 @@ class Cameras:
         self.socketio = None
         self.serial = Serial.instance()
 
-        self.old_format = True
+        self.old_format = False
 
         global cameras_init
         cameras_init = True

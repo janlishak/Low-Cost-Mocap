@@ -514,7 +514,7 @@ export default function App() {
             </Row>
             <Row>
               <Col xs="auto">
-                <h4>Add Beacons</h4>
+                <h4><del>Add Beacons</del></h4>
               </Col>
               <Col>
                 <Button
@@ -530,7 +530,7 @@ export default function App() {
             </Row>
             <Row>
               <Col xs="auto">
-                <h4>Save Points</h4>
+                <h4><del>Save Points</del></h4>
               </Col>
               <Col>
                 <Button
@@ -555,7 +555,7 @@ export default function App() {
             </Row>
             <Row>
               <Col xs="auto">
-                <h4>Load Points</h4>
+                <h4><del>Load Points</del></h4>
               </Col>
               <Col>
                 <Button
@@ -563,6 +563,22 @@ export default function App() {
                   variant="outline-primary"
                   onClick={() => {
                     socket.emit("load-points", { objectPoints: objectPoints.current, saveNumber: saveNumber, objectPointErrors: objectPointErrors.current})
+                  }
+                  }>
+                  Run
+                </Button>
+              </Col>
+            </Row>
+            <Row>
+              <Col xs="auto">
+                <h4>Load Real Poses from Simulation</h4>
+              </Col>
+              <Col>
+                <Button
+                  size='sm'
+                  variant="outline-primary"
+                  onClick={() => {
+                    socket.emit("load-simulation-poses", {})
                   }
                   }>
                   Run
@@ -1274,7 +1290,7 @@ export default function App() {
             </Row>
             <Row>
               <Col style={{ height: "1000px" }}>
-                <Canvas orthographic camera={{ zoom: 1000, position: [0, 0, 10] }}>
+                <Canvas camera={{ fov: 50, position: [0, 0, 3] }}>
                   <ambientLight />
                   {cameraPoses.map(({ R, t }, i) => (
                     <CameraWireframe R={R} t={t} toWorldCoordsMatrix={toWorldCoordsMatrix} key={i} />

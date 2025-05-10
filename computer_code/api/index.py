@@ -26,6 +26,28 @@ from pose_buffer import PoseBufferReader
 writer = LineBufferWriter("bevy_line_input_app")
 reader = PoseBufferReader(name="bevy_pose_input_app", max_lines=4)
 
+from itertools import permutations, product
+permutation_index = 0
+all_48_transforms = []
+for axes in permutations([0, 1, 2]):
+    for signs in product([-1, 1], repeat=3):
+        mat = np.zeros((3, 3), dtype=int)
+        for i in range(3):
+            mat[i, axes[i]] = signs[i]
+        all_48_transforms.append(mat)
+
+permutation_index_2 = 0
+flip_translations = [
+    np.array([[ 1], [ 1], [ 1]]),
+    np.array([[ 1], [ 1], [-1]]),
+    np.array([[ 1], [-1], [ 1]]),
+    np.array([[ 1], [-1], [-1]]),
+    np.array([[-1], [ 1], [ 1]]),
+    np.array([[-1], [ 1], [-1]]),
+    np.array([[-1], [-1], [ 1]]),
+    np.array([[-1], [-1], [-1]])
+]
+
 # order_num = 5
 # def point_order_generator(image_points):
 #     global order_num
@@ -688,6 +710,7 @@ def calculate_camera_pose(data):
 
 @socketio.on("calculate-camera-pose")
 def calculate_camera_pose(data):
+    # [x[0] for x in image_points]
     # HASHINPUT = "8671c7ee44482ff7b411ffe5180d5d64"
     # HASHINPUT = "80ba7f4f0cd00be0db42379006fef197"
     HASHINPUT = "0e89542d39b7d98a28321871773eccf1"
@@ -718,7 +741,16 @@ def calculate_camera_pose(data):
 
     print("running old")
     cameras = Cameras.instance()
-    image_points = np.array(data["cameraPoints"])
+
+    # get first frame and first camera
+    first_cam = data["cameraPoints"][0][0]
+    if isinstance(first_cam[0], list) or isinstance(first_cam[0], tuple):
+        trimmed = [[cam[0] for cam in frame] for frame in data["cameraPoints"]] # format (frames, cameras, points, 2)
+    else:
+        trimmed = data["cameraPoints"] # format (frames, cameras, 2)
+
+    image_points = np.array(trimmed)  # shape: (n_frames, n_cameras, 2)
+
     image_points_t = image_points.transpose((1, 0, 2))
 
     camera_poses = [{
@@ -924,12 +956,23 @@ def save_points(data):
         camera_translations.append(np.asarray(t).reshape(3, 1))
 
 
-    flip = np.array([[-1, 0, 0], [0, 1, 0], [0, 0, -1]])
-    camera_rotations = [flip  @ R for R in camera_rotations]
-    camera_translations = [flip  @ t for t in camera_translations]
-    
+    # flip = np.array([[-1, 0, 0], [0, 1, 0], [0, 0, -1]])
+    global permutation_index
+    global permutation_index_2
+    flip = all_48_transforms[permutation_index]
+    t_flip = flip_translations[permutation_index_2]
+    permutation_index += 1
+    permutation_index_2 += 1
+    print("--- --- ---")
+    print(flip)
+    print(t_flip)
+    print("--- --- ---")
+
+    # camera_rotations = [flip  @ R for R in camera_rotations]
+    # camera_translations = [flip  @ t for t in camera_translations]
+
     # flip_t = np.array([[1], [-1], [1]]) 
-    # camera_translations = [flip_t * t for t in camera_translations]
+    camera_translations = [t_flip * t for t in camera_translations]
 
 
     # cameras = Cameras.instance()
