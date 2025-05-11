@@ -120,8 +120,8 @@ class Cameras:
                         else:
                             self.socketio.emit("image-points", image_points) # send all points
                 elif self.is_triangulating_points:
-                    errors, object_points, frames = find_point_correspondance_and_object_points(image_points, self.camera_poses, frames)
-
+                    # errors, object_points, frames = find_point_correspondance_and_object_points(image_points, self.camera_poses, frames)
+                    return simple_triangulate(image_points, self.camera_poses, frames)
                     # convert to world coordinates
                     for i, object_point in enumerate(object_points):
                         new_object_point = np.array([[-1,0,0],[0,-1,0],[0,0,1]]) @ object_point
@@ -372,6 +372,37 @@ def triangulate_points(image_points, camera_poses):
         object_points.append(object_point)
     
     return np.array(object_points)
+
+def simple_triangulate(image_points, camera_poses, frames):
+    cameras = Cameras.instance()
+
+    for image_points_i in image_points:
+        try:
+            image_points_i.remove([None, None])
+        except:
+            pass
+
+    # [object_points, possible image_point groups, image_point from camera]
+    correspondances = [[[i]] for i in image_points[0]]
+
+    Ps = [] # projection matricies
+    for i, camera_pose in enumerate(camera_poses):
+        RT = np.c_[camera_pose["R"], camera_pose["t"]]
+        P = cameras.camera_params[i]["intrinsic_matrix"] @ RT
+        Ps.append(P)
+
+    root_image_points = [{"camera": 0, "point": point} for point in image_points[0]]
+
+    for i in range(1, len(camera_poses)):
+        epipolar_lines = []
+        for root_image_point in root_image_points:
+            F = cv.sfm.fundamentalFromProjections(Ps[root_image_point["camera"]], Ps[i])
+            line = cv.computeCorrespondEpilines(np.array([root_image_point["point"]], dtype=np.float32), 1, F)
+            epipolar_lines.append(line[0,0].tolist())
+            frames[i] = drawlines(frames[i], line[0])
+
+    return frames
+
 
 
 def find_point_correspondance_and_object_points(image_points, camera_poses, frames):

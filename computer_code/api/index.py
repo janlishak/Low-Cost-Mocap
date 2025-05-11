@@ -1172,11 +1172,11 @@ def live_mocap(data):
     cameras.to_world_coords_matrix = data["toWorldCoordsMatrix"]
 
     
-    t0 = np.array(camera_poses[0]["t"])
-    t1 = np.array(camera_poses[1]["t"])
-    distance = np.linalg.norm(t0 - t1)
-    print(f"dist: {distance}")
-    print(f"ratio: {distance/4.186269175733933}")
+    # t0 = np.array(camera_poses[0]["t"])
+    # t1 = np.array(camera_poses[1]["t"])
+    # distance = np.linalg.norm(t0 - t1)
+    # print(f"dist: {distance}")
+    # print(f"ratio: {distance/4.186269175733933}")
 
     if (start_or_stop == "start"):
         cameras.start_trangulating_points(camera_poses)
