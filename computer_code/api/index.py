@@ -23,6 +23,7 @@ import hashlib
 
 from send_lines import LineBufferWriter
 from pose_buffer import PoseBufferReader
+from utils import rotationToOpenCV, translationToOpenCV
 writer = LineBufferWriter("bevy_line_input_app")
 reader = PoseBufferReader(name="bevy_pose_input_app", max_lines=4)
 
@@ -448,11 +449,18 @@ def calculate_camera_pose(data):
 
         # print(f"(image_points_t): {image_points_t[0][0]}")
 
-        # Define object points (3D in meters)
+        # # Define object points like in bevy
+        # object_points = np.array([
+        #     [-0.075, 0.0,   0.0],
+        #     [ 0.075, 0.0,   0.0],
+        #     [ 0.0,   0.0, -0.058]
+        # ], dtype=np.float32)
+
+        # in object space of openCV
         object_points = np.array([
             [-0.075, 0.0,   0.0],
             [ 0.075, 0.0,   0.0],
-            [ 0.0,   0.0, -0.058]
+            [ 0.0,   0.0, 0.058]
         ], dtype=np.float32)
 
 
@@ -581,24 +589,19 @@ def calculate_camera_pose(data):
                     R_cam_in_obj = R_obj_to_cam.T
                     t_cam_in_obj = -R_cam_in_obj @ tvec
 
-                    # 3. Apply inverse transformation
-                    object_space_points = (R_cam_in_obj @ camera_points_3d.T).T + t_cam_in_obj.T
-                    # print("Camera window corners in object space:\n", object_space_points)
+                    # 3. Apply inverse transformation oP = point In object space
+                    P_o = (R_cam_in_obj @ camera_points_3d.T).T + t_cam_in_obj.T
 
-                    p1 = (object_space_points[0][0], object_space_points[0][1], object_space_points[0][2])
-                    p2 = (object_space_points[1][0], object_space_points[1][1], object_space_points[1][2])
-                    p3 = (object_space_points[2][0], object_space_points[2][1], object_space_points[2][2])
-                    p4 = (object_space_points[3][0], object_space_points[3][1], object_space_points[3][2])
-                    p5 = (t_cam_in_obj[0], t_cam_in_obj[1], t_cam_in_obj[2])
-                    p6 = (object_space_points[4][0], object_space_points[4][1], object_space_points[4][2])
-                    
+                    # Convert all object points and the translation vector to OpenCV (or vice versa)
+                    P_b = np.array([translationToOpenCV(p) for p in P_o])
+                    cam_b = translationToOpenCV(t_cam_in_obj)
 
-                    # frame
-                    writer.next_line(p1, p2)
-                    writer.next_line(p2, p3)
-                    writer.next_line(p3, p4)
-                    writer.next_line(p4, p1)
-                    writer.next_line(p6, p5)
+                    # Frame
+                    writer.next_line(P_b[0], P_b[1])
+                    writer.next_line(P_b[1], P_b[2])
+                    writer.next_line(P_b[2], P_b[3])
+                    writer.next_line(P_b[3], P_b[0])
+                    writer.next_line(P_b[4], cam_b)
 
                     # # frustom
                     # writer.next_line(p5, p1)
@@ -671,13 +674,17 @@ def calculate_camera_pose(data):
     cams.append(results[3][8])
 
     camera_poses = []
+    camera_rotations = []
+    camera_translations = []
     print("CAMERA POSES:")
     for i, cam in enumerate(cams):
         rvec = cam["R"]
         tvec = cam["t"]
+        camera_translations.append(tvec)
+        camera_rotations.append(rvec)
         print(f"\nCamera {i}:")
-        print(f"Rotation Vector (rvec): \n{rvec}")
-        print(f"Translation Vector (tvec): \n{tvec}")
+        print(f"Rotation Vector (rvec): \n{rotationToOpenCV(rvec)}")
+        print(f"Translation Vector (tvec): \n{translationToOpenCV(tvec)}")
         print(f"--- --- --- --- ---")
 
         camera_pose = {
@@ -688,21 +695,41 @@ def calculate_camera_pose(data):
 
 
 
-    # Now R_cam_in_obj and t_cam_in_obj describe the camera in object space
-    # camera_pose = {
-    #     "R": R_cam_in_obj,
-    #     "t": t_cam_in_obj
-    # }
+    # # Use first camera as origin
+    # camera_poses = []
+    # R0_inv = camera_rotations[0].T
+    # t0 = camera_translations[0]
+
+    # camera_poses.append({
+    #     "R": np.eye(3),
+    #     "t": np.zeros((3, 1))
+    # })
+
+    # for R, t in zip(camera_rotations[1:], camera_translations[1:]):
+    #     R_rel = R0_inv @ R
+    #     t_rel = R0_inv @ (t - t0)
+    #     camera_poses.append({
+    #         "R": R_rel,
+    #         "t": t_rel,
+    #     })
+
+    
+
+    # Just send tham as they are
+    camera_poses = []
+    for R, t in zip(camera_rotations, camera_translations):
+        camera_poses.append({ "R": R, "t": t,})
 
     socketio.emit("camera-pose", {"camera_poses": camera_pose_to_serializable(camera_poses)})
+
+
     
-    # # set the first camera pose
+    # Caluclate only first camera, rest are in line
     # R, _ = cv.Rodrigues(rvec)
     # camera_poses = [{
     #     "R": R,
     #     "t": tvec
     # }]
-
     # # # api requires all cameras set, just place them on a line
     # for i in range(3):
     #     camera_poses.append(
@@ -1021,35 +1048,46 @@ def load_simulation_poses(data):
 
 
     elif TEST_CONVERSION == 2:
-        print("CAMERA POSES FROM SIMULATION 1st Camera ORIGIN:")
+        print("CAMERA POSES FROM SIMULATION 1st Camera ORIGIN: UTILS+")
 
-        flip_r= np.array([[-1, 0, 0], [0, 1, 0], [0, 0, -1]])
-        camera_rotations = [flip_r @ R for R in camera_rotations]
-        flip_t = np.array([[1], [-1], [1]]) 
-        camera_translations = [flip_t * t for t in camera_translations]
+        # flip_r= np.array([[-1, 0, 0], [0, 1, 0], [0, 0, -1]])
+        # camera_rotations = [flip_r @ R for R in camera_rotations]
+        # flip_t = np.array([[1], [-1], [1]]) 
+        # camera_translations = [flip_t * t for t in camera_translations]
+
+        camera_rotations = [rotationToOpenCV(R) for R in camera_rotations]
+        camera_translations = [translationToOpenCV(t) for t in camera_translations]
+
+        # flip_t = np.array([[1], [1], [1]]) 
+        # camera_translations = [flip_t * t for t in camera_translations]
 
         
-        # Use first camera as origin
-        R0_inv = camera_rotations[0].T
-        t0 = camera_translations[0]
+        # # Use first camera as origin
+        # R0_inv = camera_rotations[0].T
+        # t0 = camera_translations[0]
 
+        # camera_poses = []
+        # camera_poses.append({
+        #     "R": np.eye(3),
+        #     "t": np.zeros((3, 1))
+        # })
+
+        # # offset_local = np.array([[0.0], [0.0], [0.0]])
+        # for R, t in zip(camera_rotations[1:], camera_translations[1:]):
+        #     R_rel = R0_inv @ R
+        #     t_rel = R0_inv @ (t - t0)
+        #     # offset_world = R_rel @ offset_local
+        #     # offset_first_camera_space = np.array([[0.0], [0.0], [0.0]])
+        #     # + offset_world + offset_first_camera_space
+        #     camera_poses.append({
+        #         "R": R_rel,
+        #         "t": t_rel,
+        #     })
         camera_poses = []
-        camera_poses.append({
-            "R": np.eye(3),
-            "t": np.zeros((3, 1))
-        })
-
-        offset_local = np.array([[0.0], [0.0], [0.0]])
-
-        for R, t in zip(camera_rotations[1:], camera_translations[1:]):
-            R_rel = R0_inv @ R
-            t_rel = R0_inv @ (t - t0)
-
-            offset_world = R_rel @ offset_local
-            offset_first_camera_space = np.array([[1], [1], [0.0]])
+        for R, t in zip(camera_rotations, camera_translations):
             camera_poses.append({
-                "R": R_rel,
-                "t": (t_rel + offset_world + offset_first_camera_space) * scale_factor,
+                "R": R,
+                "t": t,
             })
 
     socketio.emit("camera-pose", {"camera_poses": camera_pose_to_serializable(camera_poses)})
@@ -1071,6 +1109,60 @@ def test_diff(data):
         socketio.emit("camera-pose", {"camera_poses": camera_poses})
         eventlet.sleep(0.01)
     print("done")
+
+@socketio.on("triangulate-test")
+def triangulate_test(data):
+    print("running triangulate-test")
+    cameras = Cameras.instance()
+    camera_poses = data["cameraPoses"]
+
+    debug_frames = []
+    for cam_index in range(4):
+        K = cameras.get_camera_params(0)["intrinsic_matrix"]
+        dist_coeffs = np.zeros((4,1)) 
+
+        R_cam = np.array(camera_poses[cam_index]["R"])
+        t_cam  = np.array(camera_poses[cam_index]["t"])
+
+        R_world_to_cam = R_cam.T
+        t_world_to_cam = -R_world_to_cam @ t_cam
+        rvec, _ = cv.Rodrigues(R_world_to_cam)
+        tvec = t_world_to_cam
+
+        # 1. Define axis to visualize (length = 0.05m)
+        axis_points = np.float32([
+            [0, 0, 0],      # Origin
+            [0.15, 0, 0],   # X
+            [0, 0.15, 0],   # Y
+            [0, 0, 0.15]    # Z
+        ])
+
+        # 2. Project axis points
+        projected_axis, _ = cv.projectPoints(axis_points, rvec, tvec, K, dist_coeffs)
+
+        # ---- Drawing Section ----
+        frame = cameras.cameras.bevy_cams[cam_index].read_frame()   # Get a frame from Camera 0
+        frame = cv.cvtColor(frame, cv.COLOR_RGB2BGR)                # Ensure correct color format
+
+        # Extract points
+        origin = tuple(projected_axis[0].ravel().astype(int))
+        x_end  = tuple(projected_axis[1].ravel().astype(int))
+        y_end  = tuple(projected_axis[2].ravel().astype(int))
+        z_end  = tuple(projected_axis[3].ravel().astype(int))
+
+        # 3. Draw axes from origin
+        cv.line(frame, origin, x_end, (0,0,255), 1)  # X - Red
+        cv.line(frame, origin, y_end, (0,255,0), 1)  # Y - Green
+        cv.line(frame, origin, z_end, (255,0,0), 1)  # Z - Blue
+
+        debug_frames.append(frame)
+    # Show the frame (for debugging, or send it somewhere)
+    joined_frames = np.hstack(debug_frames)
+    cv.imshow("Pose Debug", joined_frames)
+    cv.waitKey(0)
+    cv.destroyAllWindows()
+    
+
 
 @socketio.on("triangulate-points")
 def live_mocap(data):

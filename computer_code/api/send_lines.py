@@ -1,9 +1,10 @@
+import numpy as np
 import struct
 from multiprocessing import shared_memory
 
 class LineBufferWriter:
-    FLOAT_SIZE = 4            # 4 bytes per float32
-    FLOATS_PER_LINE = 6       # 2 points (start, end) * 3 floats
+    FLOAT_SIZE = 4
+    FLOATS_PER_LINE = 6
     LINE_SIZE = FLOATS_PER_LINE * FLOAT_SIZE  # 24 bytes per line
 
     def __init__(self, name):
@@ -12,18 +13,14 @@ class LineBufferWriter:
         self.max_lines = 512
 
     def set_line(self, index, start, end):
-        """
-        Write a line at the given index.
+        start = np.asarray(start, dtype=np.float32).flatten()
+        end = np.asarray(end, dtype=np.float32).flatten()
 
-        :param index: Line index (0-based)
-        :param start: Tuple of 3 floats (x, y, z)
-        :param end:   Tuple of 3 floats (x, y, z)
-        """
-        if len(start) != 3 or len(end) != 3:
-            raise ValueError("Start and End points must be 3D tuples.")
+        if start.shape[0] != 3 or end.shape[0] != 3:
+            raise ValueError("Start and End must be 3D points (length 3)")
 
         offset = index * self.LINE_SIZE
-        line_data = struct.pack('6f', *(start + end))
+        line_data = struct.pack('6f', *(start.tolist() + end.tolist()))
         self.shm.buf[offset:offset + self.LINE_SIZE] = line_data
 
     def next_line(self, start, end):
@@ -31,8 +28,9 @@ class LineBufferWriter:
         self.index = (self.index + 1) % self.max_lines
 
     def reset(self):
+        zero = np.zeros(3, dtype=np.float32)
         for i in range(self.max_lines):
-            self.set_line(i, (0,0,0), (0,0,0))
+            self.set_line(i, zero, zero)
         self.index = 0
 
     def close(self):

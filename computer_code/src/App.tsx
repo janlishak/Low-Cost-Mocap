@@ -378,6 +378,10 @@ export default function App() {
     socket.emit("triangulate-points", { startOrStop, cameraPoses, toWorldCoordsMatrix })
   }
 
+  const startTriangulationTest = () => {
+    socket.emit("triangulate-test", { cameraPoses})
+  }
+
   return (
     <Container fluid>
       <Row className="mt-3 mb-3 flex-nowrap" style={{ alignItems: 'center' }}>
@@ -583,6 +587,22 @@ export default function App() {
                   variant="outline-primary"
                   onClick={() => {
                     socket.emit("test-diff", {})
+                  }
+                  }>
+                  Run
+                </Button>
+              </Col>
+            </Row>
+            <Row>
+              <Col xs="auto">
+                <h4>📐Test Triangulation 📐</h4>
+              </Col>
+              <Col>
+                <Button
+                  size='sm'
+                  variant="outline-primary"
+                  onClick={() => {
+                    startTriangulationTest();
                   }
                   }>
                   Run
