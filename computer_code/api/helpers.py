@@ -536,6 +536,21 @@ def compute_fundamental_from_poses(pose1, pose2, K):
     F = K_inv.T @ E @ K_inv
     return F
 
+
+def convert_to_world_to_camera_poses(camera_poses):
+    """Convert camera-to-world poses to world-to-camera poses."""
+    converted = []
+    for pose in camera_poses:
+        R_cw = np.array(pose["R"])
+        t_cw = np.array(pose["t"])
+        R_wc = R_cw.T
+        t_wc = -R_wc @ t_cw
+        converted.append({
+            "R": R_wc,
+            "t": t_wc.reshape(3, 1)
+        })
+    return converted
+
 def find_point_correspondance_and_object_points(image_points, camera_poses, frames):
     cameras = Cameras.instance()
 
@@ -613,12 +628,14 @@ def find_point_correspondance_and_object_points(image_points, camera_poses, fram
     object_points = []
     errors = []
     for image_points in correspondances:
-        object_points_i = triangulate_points(image_points, camera_poses)
+        converted_poses = convert_to_world_to_camera_poses(camera_poses)
+
+        object_points_i = triangulate_points(image_points, converted_poses)
 
         if np.all(object_points_i == None):
             continue
 
-        errors_i = calculate_reprojection_errors(image_points, object_points_i, camera_poses)
+        errors_i = calculate_reprojection_errors(image_points, object_points_i, converted_poses)
 
         object_points.append(object_points_i[np.argmin(errors_i)])
         errors.append(np.min(errors_i))
