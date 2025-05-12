@@ -120,7 +120,7 @@ class Cameras:
                         else:
                             self.socketio.emit("image-points", image_points) # send all points
                 elif self.is_triangulating_points:
-                    errors, object_points, fraes = find_point_correspondance_and_object_points(image_points, self.camera_poses, frames)
+                    errors, object_points, frames = find_point_correspondance_and_object_points(image_points, self.camera_poses, frames)
                     # return find_epilines(image_points, self.camera_poses, frames)
 
                     # convert to world coordinates
