@@ -120,8 +120,8 @@ class Cameras:
                         else:
                             self.socketio.emit("image-points", image_points) # send all points
                 elif self.is_triangulating_points:
-                    # errors, object_points, fraes = find_point_correspondance_and_object_points(image_points, self.camera_poses, frames)
-                    return find_epilines(image_points, self.camera_poses, frames)
+                    errors, object_points, fraes = find_point_correspondance_and_object_points(image_points, self.camera_poses, frames)
+                    # return find_epilines(image_points, self.camera_poses, frames)
 
                     # convert to world coordinates
                     for i, object_point in enumerate(object_points):
@@ -503,6 +503,39 @@ def find_epilines(image_points, camera_poses, frames):
     #         frames[i] = drawlines(frames[i], line[0])
     # return frames
 
+
+def compute_fundamental_from_poses(pose1, pose2, K):
+    # pose1 and pose2 are in camera-to-world form
+    R1_cw = np.array(pose1["R"])
+    t1_cw = np.array(pose1["t"])
+    R2_cw = np.array(pose2["R"])
+    t2_cw = np.array(pose2["t"])
+
+    # Convert to world-to-camera
+    R1 = R1_cw.T
+    t1 = -R1 @ t1_cw
+    R2 = R2_cw.T
+    t2 = -R2 @ t2_cw
+
+    # Relative pose from cam1 to cam2
+    R_rel = R2 @ R1.T
+    t_rel = t2 - R_rel @ t1
+
+    # Skew-symmetric of t_rel
+    t_x = np.array([
+        [0, -t_rel[2][0], t_rel[1][0]],
+        [t_rel[2][0], 0, -t_rel[0][0]],
+        [-t_rel[1][0], t_rel[0][0], 0]
+    ])
+
+    # Compute essential matrix
+    E = t_x @ R_rel
+
+    # Compute fundamental matrix
+    K_inv = np.linalg.inv(K)
+    F = K_inv.T @ E @ K_inv
+    return F
+
 def find_point_correspondance_and_object_points(image_points, camera_poses, frames):
     cameras = Cameras.instance()
 
@@ -526,7 +559,12 @@ def find_point_correspondance_and_object_points(image_points, camera_poses, fram
     for i in range(1, len(camera_poses)):
         epipolar_lines = []
         for root_image_point in root_image_points:
-            F = cv.sfm.fundamentalFromProjections(Ps[root_image_point["camera"]], Ps[i])
+            # F = cv.sfm.fundamentalFromProjections(Ps[root_image_point["camera"]], Ps[i])
+            F = compute_fundamental_from_poses(
+                camera_poses[root_image_point["camera"]],
+                camera_poses[i],
+                np.array(cameras.get_camera_params(i)["intrinsic_matrix"])
+)
             line = cv.computeCorrespondEpilines(np.array([root_image_point["point"]], dtype=np.float32), 1, F)
             epipolar_lines.append(line[0,0].tolist())
             frames[i] = drawlines(frames[i], line[0])

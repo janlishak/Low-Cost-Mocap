@@ -1098,6 +1098,23 @@ def load_simulation_poses(data):
                 "t": t,
             })
 
+    elif TEST_CONVERSION == 3:
+        R0 = camera_rotations[0]
+        t0 = camera_translations[0]
+
+        camera_poses = [{
+            "R": np.eye(3),
+            "t": np.zeros((3, 1))
+        }]
+
+        for R, t in zip(camera_rotations[1:], camera_translations[1:]):
+            R_rel = R0.T @ R
+            t_rel = R0.T @ (t - t0)
+            camera_poses.append({
+                "R": R_rel,
+                "t": t_rel,
+            })
+
     socketio.emit("camera-pose", {"camera_poses": camera_pose_to_serializable(camera_poses)})
 
 @socketio.on("test-diff")
