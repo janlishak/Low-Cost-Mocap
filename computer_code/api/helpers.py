@@ -505,35 +505,22 @@ def find_epilines(image_points, camera_poses, frames):
 
 
 def compute_fundamental_from_poses(pose1, pose2, K):
-    # pose1 and pose2 are in camera-to-world form
-    R1_cw = np.array(pose1["R"])
-    t1_cw = np.array(pose1["t"])
-    R2_cw = np.array(pose2["R"])
-    t2_cw = np.array(pose2["t"])
+    R1 = np.array(pose1["R"])
+    t1 = np.array(pose1["t"])
+    R2 = np.array(pose2["R"])
+    t2 = np.array(pose2["t"])
 
-    # Convert to world-to-camera
-    R1 = R1_cw.T
-    t1 = -R1 @ t1_cw
-    R2 = R2_cw.T
-    t2 = -R2 @ t2_cw
-
-    # Relative pose from cam1 to cam2
     R_rel = R2 @ R1.T
     t_rel = t2 - R_rel @ t1
 
-    # Skew-symmetric of t_rel
     t_x = np.array([
         [0, -t_rel[2][0], t_rel[1][0]],
         [t_rel[2][0], 0, -t_rel[0][0]],
         [-t_rel[1][0], t_rel[0][0], 0]
     ])
 
-    # Compute essential matrix
     E = t_x @ R_rel
-
-    # Compute fundamental matrix
-    K_inv = np.linalg.inv(K)
-    F = K_inv.T @ E @ K_inv
+    F = np.linalg.inv(K).T @ E @ np.linalg.inv(K)
     return F
 
 
@@ -552,6 +539,7 @@ def convert_to_world_to_camera_poses(camera_poses):
     return converted
 
 def find_point_correspondance_and_object_points(image_points, camera_poses, frames):
+    camera_poses = convert_to_world_to_camera_poses(camera_poses)
     cameras = Cameras.instance()
 
     for image_points_i in image_points:
@@ -628,14 +616,12 @@ def find_point_correspondance_and_object_points(image_points, camera_poses, fram
     object_points = []
     errors = []
     for image_points in correspondances:
-        converted_poses = convert_to_world_to_camera_poses(camera_poses)
-
-        object_points_i = triangulate_points(image_points, converted_poses)
+        object_points_i = triangulate_points(image_points, camera_poses)
 
         if np.all(object_points_i == None):
             continue
 
-        errors_i = calculate_reprojection_errors(image_points, object_points_i, converted_poses)
+        errors_i = calculate_reprojection_errors(image_points, object_points_i, camera_poses)
 
         object_points.append(object_points_i[np.argmin(errors_i)])
         errors.append(np.min(errors_i))
