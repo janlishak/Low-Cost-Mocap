@@ -120,8 +120,9 @@ class Cameras:
                         else:
                             self.socketio.emit("image-points", image_points) # send all points
                 elif self.is_triangulating_points:
-                    # errors, object_points, frames = find_point_correspondance_and_object_points(image_points, self.camera_poses, frames)
-                    return simple_triangulate(image_points, self.camera_poses, frames)
+                    # errors, object_points, fraes = find_point_correspondance_and_object_points(image_points, self.camera_poses, frames)
+                    return find_epilines(image_points, self.camera_poses, frames)
+
                     # convert to world coordinates
                     for i, object_point in enumerate(object_points):
                         new_object_point = np.array([[-1,0,0],[0,-1,0],[0,0,1]]) @ object_point
@@ -170,7 +171,7 @@ class Cameras:
 
     def get_frames(self):
         frames = self._camera_read()
-        frames = [add_white_border(frame, 5) for frame in frames]
+        # frames = [add_white_border(frame, 5) for frame in frames]
 
         return np.hstack(frames)
 
@@ -373,37 +374,134 @@ def triangulate_points(image_points, camera_poses):
     
     return np.array(object_points)
 
-def simple_triangulate(image_points, camera_poses, frames):
+# my shit
+
+def skew(t):
+    return np.array([
+        [0, -t[2], t[1]],
+        [t[2], 0, -t[0]],
+        [-t[1], t[0], 0]
+    ])
+
+
+def draw_lines(img1, img2, lines, pts1, pts2):
+    h, w = img1.shape[:2]
+    for r, pt1, pt2 in zip(lines, pts1, pts2):
+        color = tuple(np.random.randint(0, 255, 3).tolist())
+        x0, y0 = map(int, [0, -r[2] / r[1]])
+        x1, y1 = map(int, [w, -(r[2] + r[0] * w) / r[1]])
+        cv.line(img2, (x0, y0), (x1, y1), color, 1)
+        cv.circle(img1, tuple(np.round(pt1).astype(int)), 5, color, -1)
+        cv.circle(img2, tuple(np.round(pt2).astype(int)), 5, color, -1)
+    return img1, img2
+
+
+def find_epilines(image_points, camera_poses, frames):
     cameras = Cameras.instance()
+    K = np.array(cameras.get_camera_params(0)["intrinsic_matrix"])
 
-    for image_points_i in image_points:
-        try:
-            image_points_i.remove([None, None])
-        except:
-            pass
+    # Camera-to-world poses
+    R0_c2w = np.array(camera_poses[0]["R"])
+    t0_c2w = np.array(camera_poses[0]["t"])
+    R1_c2w = np.array(camera_poses[1]["R"])
+    t1_c2w = np.array(camera_poses[1]["t"])
 
-    # [object_points, possible image_point groups, image_point from camera]
-    correspondances = [[[i]] for i in image_points[0]]
+    # Convert to world-to-camera
+    R0 = R0_c2w.T
+    t0 = -R0 @ t0_c2w
+    R1 = R1_c2w.T
+    t1 = -R1 @ t1_c2w
 
-    Ps = [] # projection matricies
-    for i, camera_pose in enumerate(camera_poses):
-        RT = np.c_[camera_pose["R"], camera_pose["t"]]
-        P = cameras.camera_params[i]["intrinsic_matrix"] @ RT
-        Ps.append(P)
+    # Relative pose from cam0 to cam1 (in cam0 frame)
+    R_rel = R1 @ R0.T
+    t_rel = t1 - R_rel @ t0
 
-    root_image_points = [{"camera": 0, "point": point} for point in image_points[0]]
+    # Compute essential and fundamental matrices
+    E = skew(t_rel.flatten()) @ R_rel
+    F = np.linalg.inv(K).T @ E @ np.linalg.inv(K)
 
-    for i in range(1, len(camera_poses)):
-        epipolar_lines = []
-        for root_image_point in root_image_points:
-            F = cv.sfm.fundamentalFromProjections(Ps[root_image_point["camera"]], Ps[i])
-            line = cv.computeCorrespondEpilines(np.array([root_image_point["point"]], dtype=np.float32), 1, F)
-            epipolar_lines.append(line[0,0].tolist())
-            frames[i] = drawlines(frames[i], line[0])
+    # Prepare matched points
+    pts0 = np.array(image_points[0], dtype=np.float32).reshape(-1, 1, 2)
+    pts1 = np.array(image_points[1], dtype=np.float32).reshape(-1, 1, 2)
+
+    # Compute epilines in cam1 for pts0
+    lines1 = cv.computeCorrespondEpilines(pts0, 1, F).reshape(-1, 3)
+    frames[0], frames[1] = draw_lines(frames[0], frames[1], lines1, pts0.reshape(-1, 2), pts1.reshape(-1, 2))
+
+    # Compute epilines in cam0 for pts1
+    lines0 = cv.computeCorrespondEpilines(pts1, 2, F).reshape(-1, 3)
+    frames[1], frames[0] = draw_lines(frames[1], frames[0], lines0, pts1.reshape(-1, 2), pts0.reshape(-1, 2))
 
     return frames
 
+    # lines = np.array([[0.01, -1.0, 100], [-0.02, -1.0, 300]], dtype=np.float32)
 
+    # # Simulate corresponding points
+    # pts1 = np.array([[100, 200], [300, 400]], dtype=np.float32)
+    # pts2 = np.array([[120, 210], [320, 410]], dtype=np.float32)
+
+    # frames[0], frames[1], = drawlines(frames[0], frames[1], lines, pts1, pts2)
+
+    # cameras = Cameras.instance()
+    # K = np.array(cameras.get_camera_params(0)["intrinsic_matrix"])
+
+    # # Get poses for camera 0 and 1
+    # R1 = np.array(camera_poses[0]["R"])
+    # t1 = np.array(camera_poses[0]["t"])
+    # R2 = np.array(camera_poses[1]["R"])
+    # t2 = np.array(camera_poses[1]["t"])
+
+    # # Relative pose from cam 0 to cam 1
+    # R = R2 @ R1.T
+    # t = t2 - R @ t1
+    # t_x = skew(t.flatten())
+
+    # # Compute E and F
+    # E = t_x @ R
+    # F = np.linalg.inv(K).T @ E @ np.linalg.inv(K)
+
+    # # Prepare point data
+    # pts0 = np.array(image_points[0], dtype=np.float32).reshape(-1, 1, 2)
+    # pts1 = np.array(image_points[1], dtype=np.float32).reshape(-1, 1, 2)
+
+    # # Epilines in cam1 for points in cam0
+    # lines1 = cv.computeCorrespondEpilines(pts0, 1, F).reshape(-1, 3)
+    # frames[0], frames[1] = drawlines(frames[0], frames[1], lines1, pts0.reshape(-1, 2), pts1.reshape(-1, 2))
+
+    # # Epilines in cam0 for points in cam1
+    # lines0 = cv.computeCorrespondEpilines(pts1, 2, F).reshape(-1, 3)
+    # frames[1], frames[0] = drawlines(frames[1], frames[0], lines0, pts1.reshape(-1, 2), pts0.reshape(-1, 2))
+
+   
+
+    # OLD VERSION 
+    #
+    # for image_points_i in image_points:
+    #     try:
+    #         image_points_i.remove([None, None])
+    #     except:
+    #         pass
+
+    # # [object_points, possible image_point groups, image_point from camera]
+    # correspondances = [[[i]] for i in image_points[0]]
+
+
+    # Ps = [] # projection matricies
+    # for i, camera_pose in enumerate(camera_poses):
+    #     RT = np.c_[camera_pose["R"], camera_pose["t"]]
+    #     P = cameras.camera_params[i]["intrinsic_matrix"] @ RT
+    #     Ps.append(P)
+
+    # root_image_points = [{"camera": 0, "point": point} for point in image_points[0]]
+
+    # for i in range(1, len(camera_poses)):
+    #     epipolar_lines = []
+    #     for root_image_point in root_image_points:
+    #         F = cv.sfm.fundamentalFromProjections(Ps[root_image_point["camera"]], Ps[i])
+    #         line = cv.computeCorrespondEpilines(np.array([root_image_point["point"]], dtype=np.float32), 1, F)
+    #         epipolar_lines.append(line[0,0].tolist())
+    #         frames[i] = drawlines(frames[i], line[0])
+    # return frames
 
 def find_point_correspondance_and_object_points(image_points, camera_poses, frames):
     cameras = Cameras.instance()

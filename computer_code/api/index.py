@@ -1,3 +1,5 @@
+import sys
+import traceback
 from helpers import camera_pose_to_serializable, calculate_reprojection_errors, bundle_adjustment, Cameras, triangulate_points, Serial
 from KalmanFilter import KalmanFilter
 
@@ -108,26 +110,31 @@ def camera_stream():
         i = 0
 
         while True:
-            time_now = time.time()
-            elapsed_time = time_now - last_run_time
+            try:
+                time_now = time.time()
+                elapsed_time = time_now - last_run_time
 
-            # If it's time to emit the frame
-            if elapsed_time >= loop_interval:
-                frames = cameras.get_frames()
-                jpeg_frame = cv.imencode('.jpg', frames)[1].tobytes()
+                # If it's time to emit the frame
+                if elapsed_time >= loop_interval:
+                    frames = cameras.get_frames()
+                    jpeg_frame = cv.imencode('.jpg', frames)[1].tobytes()
 
-                yield (b'--frame\r\n'
-                    b'Content-Type: image/jpeg\r\n\r\n' + jpeg_frame + b'\r\n')
+                    yield (b'--frame\r\n'
+                        b'Content-Type: image/jpeg\r\n\r\n' + jpeg_frame + b'\r\n')
 
-                # Emit the FPS every second
-                i = (i+1)%10
-                if i == 0:
-                    socketio.emit("fps", {"fps": round(1 / elapsed_time)})
+                    # Emit the FPS every second
+                    i = (i+1)%10
+                    if i == 0:
+                        socketio.emit("fps", {"fps": round(1 / elapsed_time)})
 
-                last_run_time = time.time()  # Update to the current time
-            else:
-                # Sleep to maintain the target frame rate
-                eventlet.sleep(loop_interval - elapsed_time)
+                    last_run_time = time.time()  # Update to the current time
+                else:
+                    # Sleep to maintain the target frame rate
+                    eventlet.sleep(loop_interval - elapsed_time)
+            except Exception as e:
+                print("Fatal exception in generator:", e)
+                traceback.print_exc()
+                sys.exit(1)  # hard exit
 
     return Response(gen(cameras), mimetype='multipart/x-mixed-replace; boundary=frame')
 
@@ -1083,6 +1090,7 @@ def load_simulation_poses(data):
         #         "R": R_rel,
         #         "t": t_rel,
         #     })
+
         camera_poses = []
         for R, t in zip(camera_rotations, camera_translations):
             camera_poses.append({
@@ -1132,9 +1140,12 @@ def triangulate_test(data):
         # 1. Define axis to visualize (length = 0.05m)
         axis_points = np.float32([
             [0, 0, 0],      # Origin
-            [0.15, 0, 0],   # X
-            [0, 0.15, 0],   # Y
-            [0, 0, 0.15]    # Z
+            [0.3, 0, 0],   # X
+            [0, 0.4, 0],   # Y
+            [0, 0, 0.5],   # Z
+            # [0.3, -0.4, 0.1],
+            # [0.2, -0.4, 0.4],
+            # [0.7, -0.4, -0.6]
         ])
 
         # 2. Project axis points
@@ -1150,10 +1161,19 @@ def triangulate_test(data):
         y_end  = tuple(projected_axis[2].ravel().astype(int))
         z_end  = tuple(projected_axis[3].ravel().astype(int))
 
+        # p1  = tuple(projected_axis[4].ravel().astype(int))
+        # p2  = tuple(projected_axis[5].ravel().astype(int))
+        # p3  = tuple(projected_axis[6].ravel().astype(int))
+
         # 3. Draw axes from origin
         cv.line(frame, origin, x_end, (0,0,255), 1)  # X - Red
         cv.line(frame, origin, y_end, (0,255,0), 1)  # Y - Green
         cv.line(frame, origin, z_end, (255,0,0), 1)  # Z - Blue
+
+        # # draw bs
+        # cv.line(frame, p1, p2, (0,0,255), 1)  # X - Red
+        # cv.line(frame, p2, p3, (0,255,0), 1)  # Y - Green
+        # cv.line(frame, p3, p1, (255,0,0), 1)  # Z - Blue
 
         debug_frames.append(frame)
     # Show the frame (for debugging, or send it somewhere)
