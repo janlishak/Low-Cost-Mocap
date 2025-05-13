@@ -19,7 +19,9 @@ import eventlet
 
 from mem import BevyCamera, GreenExampleCamera
 
-class Camera:
+USE_VIRTUAL_CAMERA = False
+
+class VirtualCamera:
     RES_SMALL = "RES_SMALL"
     def __init__(self, fps=60, resolution=RES_SMALL, gain=34, exposure=100):
         self.camera_count = 4
@@ -59,7 +61,12 @@ class Cameras:
         f = open(filename)
         self.camera_params = json.load(f)
 
-        self.cameras = Camera(fps=60, resolution=Camera.RES_SMALL, gain=34, exposure=100)
+        if USE_VIRTUAL_CAMERA:
+            self.cameras = VirtualCamera(fps=60, resolution=VirtualCamera.RES_SMALL, gain=34, exposure=100)
+        else:
+            from pseyepy import Camera as PSEyeCamera
+            self.cameras = PSEyeCamera(fps=60, resolution=PSEyeCamera.RES_SMALL, gain=34, exposure=100)
+
         self.num_cameras = len(self.cameras.exposure)
         # print(self.num_cameras)
 
@@ -91,7 +98,7 @@ class Cameras:
         self.cameras.gain = [gain] * self.num_cameras
 
     def _camera_read(self):
-        frames, _ = self.cameras.read([0,1,2,3])
+        frames, _ = self.cameras.read([0,1])
 
         for i in range(0, self.num_cameras):
             frames[i] = np.rot90(frames[i], k=self.camera_params[i]["rotation"])
@@ -171,7 +178,7 @@ class Cameras:
 
     def get_frames(self):
         frames = self._camera_read()
-        # frames = [add_white_border(frame, 5) for frame in frames]
+        frames = [add_white_border(frame, 5) for frame in frames]
 
         return np.hstack(frames)
 
@@ -207,6 +214,7 @@ class Cameras:
         self.is_capturing_points = True
         self.is_triangulating_points = True
         self.camera_poses = camera_poses
+        print(self.num_objects)
         self.kalman_filter = KalmanFilter(self.num_objects)
 
     def stop_trangulating_points(self):

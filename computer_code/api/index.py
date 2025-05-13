@@ -1,6 +1,6 @@
 import sys
 import traceback
-from helpers import camera_pose_to_serializable, calculate_reprojection_errors, bundle_adjustment, Cameras, triangulate_points, Serial
+from helpers import USE_VIRTUAL_CAMERA, camera_pose_to_serializable, calculate_reprojection_errors, bundle_adjustment, Cameras, triangulate_points, Serial
 from KalmanFilter import KalmanFilter
 
 from flask import Flask, Response, request
@@ -411,7 +411,9 @@ def capture_points(data):
 
 @socketio.on("calculate-camera-pose-triangle")
 def calculate_camera_pose(data):
-    HASHINPUT = "acc7cda5678cbd7d6a95944a592986ca"
+    HASHINPUT = None
+    # HASHINPUT = "acc7cda5678cbd7d6a95944a592986ca" # from simulator
+    HASHINPUT = "88141213d4b2aac40a2ecc23a9aee80f" # 2 cam triangle
 
     # make sure cache dir exists
     CACHE_DIR ="cache"
@@ -435,21 +437,21 @@ def calculate_camera_pose(data):
     
     # global order
     # print(f"ORD: {order_num}") 
+    # print(data)
 
     # get data
     camera_points = data["cameraPoints"]
     cameras = Cameras.instance()
-    results = [[] for _ in range(4)]
+    results = [[] for _ in range(cameras.num_cameras)]
+    print(cameras.num_cameras)
 
     for camera_index in range(cameras.num_cameras):
     # for camera_index in [3]:
         # fill missing points where camera seen less than 3 points
-        standardized_camera_points = []
-        for points in camera_points:
-            while len(points) < 3:
-                print("missing points")
-                points.append([None, None])
-            standardized_camera_points.append(points)
+
+        standardized_camera_points = [entry for entry in camera_points if all(len(cam) == 3 for cam in entry)]
+        standardized_camera_points = standardized_camera_points[0:1]
+        print(standardized_camera_points)
 
         image_points = np.array(standardized_camera_points)
         image_points_t = image_points.transpose((1, 0, 2, 3))
@@ -530,7 +532,12 @@ def calculate_camera_pose(data):
                     reprojected_points, _ = cv.projectPoints(object_points, rvec, tvec, K, dist_coeffs)
 
                     # ---- Drawing Section ----
-                    frame = cameras.cameras.bevy_cams[camera_index].read_frame()   # Get a frame from Camera 0
+                    if USE_VIRTUAL_CAMERA:
+                        frame = cameras.cameras.bevy_cams[camera_index].read_frame()   # Get a frame from Camera 0
+                    else:
+                        frames, _ = cameras.cameras.read([0,1])
+                        frame = frames[camera_index]
+
                     frame = cv.cvtColor(frame, cv.COLOR_RGB2BGR)        # Ensure correct color format
 
                     # Extract points
@@ -578,7 +585,8 @@ def calculate_camera_pose(data):
                     for corner in corners_2d:
                         pixel_homogeneous = np.array([corner[0], corner[1], 1.0])
                         direction = K_inv @ pixel_homogeneous
-                        point_cam_space = direction / direction[2]   # Normalize so Z = 1
+                        scale = 0.1 / direction[2]
+                        point_cam_space = direction * scale
                         camera_points_3d.append(point_cam_space)
 
                     camera_points_3d = np.array(camera_points_3d, dtype=np.float32)
@@ -611,25 +619,25 @@ def calculate_camera_pose(data):
                     writer.next_line(P_b[4], cam_b)
 
                     # # frustom
-                    # writer.next_line(p5, p1)
-                    # writer.next_line(p5, p2)
-                    # writer.next_line(p5, p3)
-                    # writer.next_line(p5, p4)
+                    writer.next_line(cam_b, P_b[0])
+                    writer.next_line(cam_b, P_b[1])
+                    writer.next_line(cam_b, P_b[2])
+                    writer.next_line(cam_b, P_b[3])
 
                     # # Draw reprojected points
                     # for pt in reprojected_points:
                     #     cv.circle(frame, tuple(pt.ravel().astype(int)), 5, (0,255,255), -1)
 
                     # # OPTIONAL: Draw detected points for comparison
-                    # for pt in image_points:
-                    #     cv.circle(frame, tuple(pt.ravel().astype(int)), 5, (255,0,255), 2)
+                    for pt in image_points:
+                        cv.circle(frame, tuple(pt.ravel().astype(int)), 5, (255,0,255), 2)
 
-                    # # Show the frame (for debugging, or send it somewhere)
-                    # print(ord_num)
-                    # print(f"tvec: {t_cam_in_obj} rvec: {R_cam_in_obj}")
-                    # cv.imshow("Pose Debug", frame)
-                    # cv.waitKey(0)
-                    # cv.destroyAllWindows()
+                    # Show the frame (for debugging, or send it somewhere)
+                    print(ord_num)
+                    print(f"tvec: {t_cam_in_obj} rvec: {R_cam_in_obj}")
+                    cv.imshow("Pose Debug", frame)
+                    cv.waitKey(0)
+                    cv.destroyAllWindows()
 
                     res = {
                         "R": R_cam_in_obj,
@@ -675,10 +683,10 @@ def calculate_camera_pose(data):
     
     
     cams = []
-    cams.append(results[0][10])
-    cams.append(results[1][6])
-    cams.append(results[2][1])
-    cams.append(results[3][8])
+    cams.append(results[0][7])
+    cams.append(results[1][9])
+    # cams.append(results[2][1])
+    # cams.append(results[3][8])
 
     camera_poses = []
     camera_rotations = []
@@ -699,6 +707,13 @@ def calculate_camera_pose(data):
             "t": cam["t"]
         }
         camera_poses.append(camera_pose) 
+
+    
+    # for i in range(2):
+    #     camera_rotations.append(np.eye(3))
+    #     camera_translations.append(np.array([[2 + i], [0], [0]], dtype=np.float32))
+    
+    # [{"R":[[-0.9141711204316677,-0.1475788482764106,0.3775071470980617],[0.21917082145105504,0.6034826974551759,0.766663410432958],[-0.34096233456670716,0.7836001004425871,-0.5193414762881817]],"t":[[-0.2857592539153209],[-0.3833253781383381],[0.3365986692809835]]},{"R":[[0.31292694031347823,0.74029598255267,-0.595011418581544],[-0.21255655934196205,0.6651705629156746,0.7157987365951068],[0.9256870092567744,-0.09751912862008727,0.36550455598586873]],"t":[[0.24351097955840162],[-0.4240417513991331],[-0.2832430020911372]]}]
 
 
 
