@@ -486,7 +486,7 @@ export default function App() {
                 </Button>
               </Col>
             </Row>
-            <Row>
+            {/* <Row>
               <Col xs="auto">
                 <h4>Set Scale Using Points</h4>
               </Col>
@@ -502,8 +502,8 @@ export default function App() {
                   Run
                 </Button>
               </Col>
-            </Row>
-            <Row>
+            </Row> */}
+            {/* <Row>
               <Col xs="auto">
                 <h4>Print Average Point</h4>
               </Col>
@@ -608,10 +608,10 @@ export default function App() {
                   Run
                 </Button>
               </Col>
-            </Row>
+            </Row> */}
             <Row>
               <Col xs="auto">
-                <h4>Reset Simulation Gyzmos</h4>
+                <h4>Simulation Reset Gizmos</h4>
               </Col>
               <Col>
                 <Button
@@ -627,7 +627,7 @@ export default function App() {
             </Row>
             <Row>
               <Col xs="auto">
-                <h4>Load Real Poses from Simulation</h4>
+                <h4>Simulation Load Poses</h4>
               </Col>
               <Col>
                 <Button
@@ -641,7 +641,7 @@ export default function App() {
                 </Button>
               </Col>
             </Row>
-            <Row>
+            {/* <Row>
               <Col xs="auto">
                 <h4>Acquire Floor</h4>
               </Col>
@@ -674,7 +674,7 @@ export default function App() {
                   Run
                 </Button>
               </Col>
-            </Row>
+            </Row> */}
             <Row>
               <Col xs="auto">
                 <h4>Collect points for camera pose calibration</h4>
@@ -696,7 +696,7 @@ export default function App() {
                 </a>
               </Col>
             </Row>
-            <Row className='pt-3'>
+            {/* <Row className='pt-3'>
               <Col>
                 <Button
                   size='sm'
@@ -709,7 +709,7 @@ export default function App() {
                   Calculate Camera Pose with {isValidJson(`[${capturedPointsForPose.slice(0, -1)}]`) ? JSON.parse(`[${capturedPointsForPose.slice(0, -1)}]`).length : 0} points
                 </Button>
               </Col>
-            </Row>
+            </Row> */}
             <Row className='pt-3'>
               <Col>
                 <Button
