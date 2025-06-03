@@ -1,0 +1,22 @@
+[project]
+name = "mocap"
+version = "0.1.0"
+description = ""
+requires-python = ">=3.13,<4.0"
+dependencies = [
+    "numpy (>=2.2.5,<3.0.0)",
+    "scipy (>=1.15.2,<2.0.0)",
+    "pyserial (>=3.5,<4.0)",
+    "flask (>=3.1.0,<4.0.0)",
+    "flask-socketio (>=5.5.1,<6.0.0)",
+    "ruckig (>=0.14.0,<0.15.0)",
+    "flask-cors (>=5.0.1,<6.0.0)",
+    "eventlet (>=0.39.1,<0.40.0)"
+]
+
+[build-system]
+requires = ["poetry-core>=2.0.0,<3.0.0"]
+build-backend = "poetry.core.masonry.api"
+
+[tool.poetry]
+package-mode = false
