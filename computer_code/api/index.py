@@ -783,7 +783,7 @@ def calculate_camera_pose(data):
     # HASHINPUT = "80ba7f4f0cd00be0db42379006fef197"
     HASHINPUT = "0e89542d39b7d98a28321871773eccf1"
 
-    # HASHINPUT = None
+    HASHINPUT = None
 
     # make sure cache dir exists
     CACHE_DIR ="cache"
